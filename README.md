@@ -2,7 +2,7 @@
 
 An asyncio Redis-compatible server built from the
 [CodeCrafters Redis challenge](https://codecrafters.io/challenges/redis). Implements a subset of
-Redis over RESP2, including strings, bitmaps, lists, streams, sorted sets, geospatial indexes,
+Redis over RESP2, including strings, bitmaps, lists, sets, streams, sorted sets, geospatial indexes,
 pub/sub, authentication, transactions, replication, and RDB/AOF persistence.
 
 [Quick start](#quick-start) · [Configuration](#configuration) ·
@@ -141,6 +141,21 @@ Lists contain ordered string values.
 `BLPOP` accepts a timeout in seconds, including fractions; `0` waits indefinitely. Multiple-key
 `BLPOP` is not implemented.
 
+### Sets
+
+Sets contain unique, unordered string members.
+
+| Command | Behavior |
+| --- | --- |
+| `SADD key member [member ...]` | Add members; return the number of new members |
+| `SISMEMBER key member` | Return `1` if the member exists, otherwise `0` |
+| `SCARD key` | Return the number of members |
+| `SREM key member [member ...]` | Remove members; return the number removed |
+| `SMEMBERS key` | Return all members in unspecified order |
+
+Missing keys behave as empty sets. Duplicate members count once. Removing the last member deletes
+its key; adding or removing members preserves existing expiry.
+
 ### Streams
 
 Streams contain entries ordered by IDs, with field/value pairs in each entry.
@@ -209,7 +224,7 @@ Searches scan the sorted set.
 | --- | --- |
 | `PING [message]` | Return `PONG`, or echo the supplied message |
 | `ECHO message` | Return the message |
-| `TYPE key` | Return `string`, `list`, `stream`, `zset`, or `none` |
+| `TYPE key` | Return `string`, `list`, `set`, `stream`, `zset`, or `none` |
 | `KEYS pattern` | List matching, unexpired keys; `*` matches all keys |
 | `QUIT` | Reply `OK` and close the connection |
 | `RESET` | Clear subscriptions, queued transaction, watched keys, and authenticated identity |
@@ -297,8 +312,8 @@ By default, startup loads `dir/dbfilename`. With `--appendonly yes`, it replays 
 ### RDB snapshots
 
 A missing snapshot starts an empty store. The loader restores database 0, including strings, plain
-lists, binary-score sorted sets, and stream listpacks without consumer groups. Strings support
-integer and LZF encodings. Expiry timestamps are preserved; expired keys are skipped.
+lists and sets, binary-score sorted sets, and stream listpacks without consumer groups. Strings
+support integer and LZF encodings. Expiry timestamps are preserved; expired keys are skipped.
 
 Other RDB encodings, stream consumer groups, checksum validation, and selecting other databases are
 not implemented. Replication generates snapshots in memory; saving snapshots to disk with `SAVE` or
@@ -360,7 +375,7 @@ Tests are grouped by target:
 | Location | Coverage |
 | --- | --- |
 | `tests/unit/commands/` | Authentication, configuration, transactions, and command errors |
-| `tests/unit/commands/data/` | Strings, bitmaps, lists, streams, sorted sets, geo, and expiry |
+| `tests/unit/commands/data/` | Strings, bitmaps, lists, sets, streams, sorted sets, geo, and expiry |
 | `tests/unit/network/`, `tests/unit/protocol/` | Pub/sub state, output queues, and RESP framing |
 | `tests/unit/persistence/`, `tests/unit/replication/`, `tests/unit/startup/` | RDB, AOF, replica command handling, and startup |
 | `tests/integration/` | Socket-based command, network, persistence, and replication tests |
@@ -398,6 +413,10 @@ rather than production capacity.
 | `app/persistence/` | RDB parsing and snapshots; AOF logging and replay |
 | `app/replication/` | Primary write propagation and replica following |
 | `tests/` | Unit, integration, and stress suites |
+
+Sorted sets keep a member-to-score dictionary and a list ordered by `(score, member)`. Score
+lookups use the dictionary; ranks use binary search. Single inserts and removals still require
+list shifts, while batch writes merge or filter the ordered index once. Sets use Python hash sets.
 
 Data helpers ending in `_locked` require the caller to hold the store lock. Command handlers return
 responses and mutation metadata for the executor to process.

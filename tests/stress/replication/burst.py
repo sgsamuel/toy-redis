@@ -14,6 +14,7 @@ async def replication_burst(scale):
             await producer.command('SET', f'before:{index}', str(index))
         store = primary.executor.store
         store.rpush('list', 'a', 'b')
+        store.sadd('members', 'a', 'b')
         store.zadd('scores', (1.0, 'member'))
         store.xadd('stream', '1-0', [('field', 'value')])
         store.setbit('bits', 0, 1)
@@ -21,6 +22,7 @@ async def replication_burst(scale):
         async with following(primary) as replica:
             assert len(replica.store.keys('before:*')) == 100 * scale
             assert replica.store.lrange('list', 0, -1) == ['a', 'b']
+            assert set(replica.store.smembers('members')) == {'a', 'b'}
             assert replica.store.zscore('scores', 'member') == 1.0
             assert replica.store.xrange('stream', '-', '+') == store.xrange('stream', '-', '+')
             assert replica.store.get('bits') == b'\x80'

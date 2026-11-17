@@ -6,13 +6,13 @@ from pathlib import Path
 import time
 
 from app.persistence.rdb import dump_rdb, load_rdb, parse_rdb
-from .common import RedisString, RedisList, RedisStream, RedisStreamEntry, RedisSortedSet
-from .entries import strings, lists, streams, sorted_set, bitmap, geo
+from .common import RedisString, RedisList, RedisStream, RedisStreamEntry, RedisSortedSet, RedisSet
+from .entries import strings, lists, streams, sorted_set, bitmap, geo, sets
 
 
 class RedisStore:
     def __init__(self):
-        self._store: dict[str, RedisString | RedisList | RedisStream | RedisSortedSet] = {}
+        self._store: dict[str, RedisString | RedisList | RedisStream | RedisSortedSet | RedisSet] = {}
 
         self._list_waiters: dict[str, deque[asyncio.Future[str]]] = {}
         self._stream_waiters: dict[str, deque[asyncio.Future[None]]] = {}
@@ -24,7 +24,7 @@ class RedisStore:
         """Increment the key version; the caller must hold _lock."""
         self._key_versions[key] = self._key_versions.get(key, 0) + 1
 
-    def _get_entry_locked(self, key: str) -> RedisString | RedisList | RedisStream | RedisSortedSet | None:
+    def _get_entry_locked(self, key: str) -> RedisString | RedisList | RedisStream | RedisSortedSet | RedisSet | None:
         """Read and expire a key; the caller must hold _lock."""
         entry = self._store.get(key)
         if entry is not None and entry.is_expired():
@@ -51,6 +51,8 @@ class RedisStore:
                 return "stream"
             if isinstance(entry, RedisSortedSet):
                 return "zset"
+            if isinstance(entry, RedisSet):
+                return "set"
 
         raise TypeError(f"Unsupported entry type: {type(entry).__name__}")
 
@@ -180,6 +182,21 @@ class RedisStore:
         self, requests: list[tuple[str, str]], block_ms: int
     ) -> list[tuple[str, list[RedisStreamEntry]]]:
         return await streams.xread_blocking(self, requests, block_ms)
+
+    def sadd(self, key: str, *members: str) -> int:
+        return sets.sadd(self, key, *members)
+
+    def sismember(self, key: str, member: str) -> bool:
+        return sets.sismember(self, key, member)
+
+    def scard(self, key: str) -> int:
+        return sets.scard(self, key)
+
+    def srem(self, key: str, *members: str) -> int:
+        return sets.srem(self, key, *members)
+
+    def smembers(self, key: str) -> list[str]:
+        return sets.smembers(self, key)
 
     def zadd(
         self, key: str, *pairs: tuple[float, str], condition: str | None = None

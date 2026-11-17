@@ -53,6 +53,7 @@ class AOFReplayTests(unittest.IsolatedAsyncioTestCase):
         commands = [
             ['SET', 'number', '1'], ['INCR', 'number'],
             ['RPUSH', 'list', 'a', 'b'], ['LPOP', 'list'],
+            ['SADD', 'members', 'a', 'b', '\udcff\x00'], ['SREM', 'members', 'a'],
             ['ZADD', 'scores', 'NX', '1', 'a', '2', 'b'],
             ['ZADD', 'scores', 'XX', '3', 'a', '4', 'missing'], ['ZREM', 'scores', 'a'],
             ['XADD', 'stream', '*', 'field', 'value'], ['SETBIT', 'bits', '0', '1'],
@@ -182,3 +183,19 @@ class AOFReplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.manager.replay(executor.execute), 100)
         self.assertEqual(executor.store.get('number'), '100')
         self.assertEqual(self.manager.file.stat().st_size, before)
+
+    async def test_set_noops_and_reads_are_not_logged(self):
+        executor = self.executor()
+        session = ClientSession()
+        await executor.execute(['SADD', 'members', 'a'], session)
+        before = self.manager.file.read_bytes()
+        for tokens in [['SADD', 'members', 'a', 'a'], ['SREM', 'members', 'missing'],
+                       ['SREM', 'missing', 'a'], ['SCARD', 'members'],
+                       ['SISMEMBER', 'members', 'a'], ['SMEMBERS', 'members'],
+                       ['SADD', 'members']]:
+            await executor.execute(tokens, session)
+        self.assertEqual(self.manager.file.read_bytes(), before)
+        await executor.execute(['SREM', 'members', 'a'], session)
+        restored = self.executor()
+        self.assertEqual(await self.manager.replay(restored.execute), 2)
+        self.assertIsNone(restored.store.type('members'))

@@ -1,3 +1,5 @@
+import random
+
 from tests.support import CommandTestCase
 
 
@@ -86,3 +88,33 @@ class SortedSetCommandTests(CommandTestCase):
         self.assertTrue((await self.command('ZADD', 'scores', '1', 'a', 'nan', 'b')).is_error)
         self.assertIsNone(self.store.type('scores'))
         self.assertEqual(self.executor.replication.offset, 0)
+
+    async def test_batch_updates_and_removals_match_reference_model(self):
+        rng = random.Random(42)
+        expected = {}
+        for _ in range(250):
+            if rng.randrange(3):
+                pairs = tuple((float(rng.randrange(-5, 6)), str(rng.randrange(30)))
+                              for _ in range(rng.randrange(1, 12)))
+                condition = rng.choice([None, 'NX', 'XX'])
+                added = 0
+                for score, member in pairs:
+                    if ((condition == 'NX' and member in expected)
+                            or (condition == 'XX' and member not in expected)):
+                        continue
+                    added += member not in expected
+                    expected[member] = score
+                self.assertEqual(self.store.zadd('scores', *pairs, condition=condition), added)
+            else:
+                members = tuple(str(rng.randrange(30)) for _ in range(8))
+                removed = len(set(members) & expected.keys())
+                for member in members:
+                    expected.pop(member, None)
+                self.assertEqual(self.store.zrem('scores', *members), removed)
+            ordered = sorted(expected, key=lambda member: (expected[member], member))
+            self.assertEqual(self.store.zrange('scores', 0, -1), ordered)
+            self.assertEqual(self.store.zcard('scores'), len(expected))
+            for rank, member in enumerate(ordered):
+                self.assertEqual(self.store.zrank('scores', member), rank)
+                self.assertEqual(self.store.zscore('scores', member), expected[member])
+            self.assertIsNone(self.store.zrank('scores', 'missing'))

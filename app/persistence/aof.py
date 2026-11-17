@@ -30,7 +30,6 @@ class AOFManager:
         with self.file.open("ab"):
             pass
 
-        # Exclusive creation preserves a manifest written by another startup.
         try:
             with self.manifest.open("x", encoding="utf-8") as output:
                 output.write(f"file {quote(self.file.name)} seq 1 type i\n")

@@ -10,7 +10,6 @@ if TYPE_CHECKING:
     from ..store import RedisStore
 
 
-# Encode coordinates as interleaved 26-bit latitude and longitude grid cells.
 MIN_LONGITUDE = -180.0
 MAX_LONGITUDE = 180.0
 MIN_LATITUDE = -85.05112878
@@ -86,7 +85,7 @@ def geopos(store: RedisStore, key: str, *members: str) -> list[tuple[float, floa
         if entry is None:
             return [None for _ in members]
 
-        scores = {item.value: item.score for item in entry.entries}
+        scores = entry.scores
 
         return [
             decode_coordinates(scores[member]) if member in scores else None
@@ -97,7 +96,6 @@ def geopos(store: RedisStore, key: str, *members: str) -> list[tuple[float, floa
 def haversine_distance(
     longitude1: float, latitude1: float, longitude2: float, latitude2: float
 ) -> float:
-    # https://github.com/redis/redis/blob/4322cebc1764d433b3fce3b3a108252648bf59e7/src/geohash_helper.c#L228
     longitude1, longitude2 = radians(longitude1), radians(longitude2)
     latitude1, latitude2 = radians(latitude1), radians(latitude2)
     longitude_sine = sin((longitude2 - longitude1) / 2)
@@ -136,18 +134,18 @@ def geosearch(
             return []
 
         if isinstance(center, str):
-            origin = next((item for item in entry.entries if item.value == center), None)
+            origin = entry.scores.get(center)
 
             if origin is None:
                 raise ValueError("could not decode requested zset member")
 
-            center = decode_coordinates(origin.score)
+            center = decode_coordinates(origin)
 
         longitude, latitude = center
         results = []
 
-        for item in entry.entries:
-            position = decode_coordinates(item.score)
+        for score, member in entry.ordered:
+            position = decode_coordinates(score)
             distance = haversine_distance(longitude, latitude, *position)
 
             if len(shape) == 1:
@@ -162,7 +160,7 @@ def geosearch(
                 if latitude_distance > height / 2 or longitude_distance > width / 2:
                     continue
 
-            results.append((item.value, distance, item.score, position))
+            results.append((member, distance, score, position))
 
             if any_results and count is not None and len(results) >= count:
                 break

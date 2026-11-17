@@ -1,5 +1,6 @@
 from pathlib import Path
 from unittest.mock import patch
+import struct
 import tempfile
 import time
 import unittest
@@ -80,6 +81,8 @@ class RDBTests(unittest.TestCase):
         self.store.set('text', 'é', expiry_ms=60000)
         self.store.setbit('bits', 0, 1)
         self.store.rpush('list', 'a', 'b')
+        self.store.sadd('members', 'a', 'b', '\udcff\x00')
+        self.store.expire('members', 60000)
         self.store.zadd('scores', (1.0, 'a'), (2.0, 'b'))
         self.store.geoadd('places', (13.361389, 38.115556, 'Palermo'))
         self.store.xadd('stream', '1-0', [('field', 'value')])
@@ -90,6 +93,10 @@ class RDBTests(unittest.TestCase):
         self.assertEqual(restored.get('text'), 'é'.encode())
         self.assertEqual(restored.get('bits'), b'\x80')
         self.assertEqual(restored.lrange('list', 0, -1), ['a', 'b'])
+        self.assertEqual(restored.type('members'), 'set')
+        self.assertCountEqual(restored.smembers('members'), ['a', 'b', '\udcff\x00'])
+        self.assertAlmostEqual(restored._store['members'].expires_at,
+                               self.store._store['members'].expires_at, delta=0.01)
         self.assertEqual(restored.zrange('scores', 0, -1), ['a', 'b'])
         self.assertEqual(restored.zscore('places', 'Palermo'), 3479099956230698)
         self.assertEqual(restored.xrange('stream', '-', '+'), self.store.xrange('stream', '-', '+'))
@@ -109,3 +116,34 @@ class RDBTests(unittest.TestCase):
         for data, expected in [(b'\xe0\x00\x02', 12), (b'\x02a', 3), (b'\x00a', 9)]:
             with self.assertRaises(ValueError):
                 decompress_lzf(data, expected)
+
+    def test_plain_set_encoding_loads_and_rejects_truncation(self):
+        body = b'\x02' + string(b'members') + length(3)
+        body += string(b'a') + string(b'\xff\x00') + string(b'42')
+        self.path.write_bytes(snapshot(body))
+        self.store.load_rdb(self.path)
+        self.assertCountEqual(self.store.smembers('members'), ['a', '\udcff\x00', '42'])
+        self.assertEqual(self.store.sadd('members', 'a', 'new'), 1)
+        self.assertEqual(self.store.srem('members', '42'), 1)
+        self.path.write_bytes(snapshot(body)[:-10])
+        with self.assertRaises(ValueError):
+            self.store.load_rdb(self.path)
+
+    def test_sorted_set_indexes_remain_usable_after_restore(self):
+        self.store.zadd('scores', (2.0, 'b'), (1.0, 'a'), (2.0, 'c'))
+        restored = RedisStore()
+        restored.restore_snapshot(self.store.snapshot())
+        self.assertEqual(restored.zrank('scores', 'c'), 2)
+        self.assertEqual(restored.zadd('scores', (0.0, 'c'), (3.0, 'a')), 0)
+        self.assertEqual(restored.zrange('scores', 0, -1, with_scores=True),
+                         [('c', 0.0), ('b', 2.0), ('a', 3.0)])
+        self.assertEqual(restored.zrem('scores', 'c'), 1)
+        self.assertEqual(restored.zrank('scores', 'a'), 1)
+
+    def test_nan_sorted_set_scores_are_rejected(self):
+        body = b'\x05' + string(b'scores') + length(1)
+        body += string(b'member') + struct.pack('<d', float('nan'))
+        self.path.write_bytes(snapshot(body))
+        with self.assertRaises(ValueError):
+            self.store.load_rdb(self.path)
+        self.assertEqual(self.store.keys('*'), [])

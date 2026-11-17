@@ -44,8 +44,6 @@ class ClientSession:
             return False
 
         if self.outgoing.full():
-            # Atomic EXEC blocks cannot yield between publishes or replica writes.
-            # Batch queued frames instead of treating a short burst as a slow client.
             queued = []
 
             while not self.outgoing.empty():

@@ -8,10 +8,10 @@ async def randomized_storage(scale):
 
     store = RedisStore()
     rng = random.Random(42)
-    members, values, bitmap = {}, [], bytearray(128)
+    members, set_members, values, bitmap = {}, set(), [], bytearray(128)
     count = 10000 * scale
     for _ in range(count):
-        operation = rng.randrange(6)
+        operation = rng.randrange(8)
         if operation == 0:
             member, score = str(rng.randrange(200)), float(rng.randrange(100))
             expected = int(member not in members)
@@ -30,6 +30,16 @@ async def randomized_storage(scale):
             size = rng.randrange(4)
             expected, values = values[:size], values[size:]
             assert store.lpop('list', size) == expected
+        elif operation == 4:
+            member = str(rng.randrange(200))
+            expected = int(member not in set_members)
+            set_members.add(member)
+            assert store.sadd('members', member, member) == expected
+        elif operation == 5:
+            member = str(rng.randrange(200))
+            expected = int(member in set_members)
+            set_members.discard(member)
+            assert store.srem('members', member, member) == expected
         else:
             offset, bit = rng.randrange(1024), rng.randrange(2)
             previous = (bitmap[offset // 8] >> (7 - offset % 8)) & 1
@@ -38,5 +48,7 @@ async def randomized_storage(scale):
             bitmap[offset // 8] = (bitmap[offset // 8] & ~mask) | (bit << (7 - offset % 8))
         assert store.zrange('scores', 0, -1) == sorted(members, key=lambda m: (members[m], m))
         assert store.lrange('list', 0, -1) == values
+        assert set(store.smembers('members')) == set_members
+        assert store.scard('members') == len(set_members)
         assert store.bitcount('bitmap') == sum(value.bit_count() for value in bitmap)
     return {'operations': count, 'seed': 42, 'reference_model_matches': True}

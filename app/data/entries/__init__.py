@@ -3,7 +3,7 @@ from ..common import (
     RedisString,
     RedisList,
     RedisSortedSet,
-    RedisSortedSetEntry,
+    RedisSet,
     RedisStream,
     RedisStreamEntry,
 )
@@ -13,7 +13,7 @@ __all__ = [
     "RedisString",
     "RedisList",
     "RedisSortedSet",
-    "RedisSortedSetEntry",
+    "RedisSet",
     "RedisStream",
     "RedisStreamEntry",
 ]

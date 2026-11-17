@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from app.protocol.encoding import encode_text
@@ -47,15 +47,19 @@ class RedisStream:
         return self.expires_at is not None and time.monotonic() > self.expires_at
 
 
-@dataclass(slots=True)
-class RedisSortedSetEntry:
-    value: str
-    score: float
+@dataclass
+class RedisSet:
+    members: set[str] = field(default_factory=set)
+    expires_at: float | None = None
+
+    def is_expired(self) -> bool:
+        return self.expires_at is not None and time.monotonic() > self.expires_at
 
 
 @dataclass
 class RedisSortedSet:
-    entries: list[RedisSortedSetEntry]
+    scores: dict[str, float] = field(default_factory=dict)
+    ordered: list[tuple[float, str]] = field(default_factory=list)
     expires_at: float | None = None
 
     def is_expired(self) -> bool:
@@ -90,6 +94,13 @@ def _get_list_locked(store: RedisStore, key: str) -> RedisList | None:
 def _get_stream_locked(store: RedisStore, key: str) -> RedisStream | None:
     entry = store._get_entry_locked(key)
     if entry is not None and not isinstance(entry, RedisStream):
+        raise ValueError(WRONG_TYPE)
+    return entry
+
+
+def _get_set_locked(store: RedisStore, key: str) -> RedisSet | None:
+    entry = store._get_entry_locked(key)
+    if entry is not None and not isinstance(entry, RedisSet):
         raise ValueError(WRONG_TYPE)
     return entry
 

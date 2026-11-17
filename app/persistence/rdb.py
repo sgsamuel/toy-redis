@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import time
 import struct
+from math import isnan
 from collections import deque
 from io import BytesIO
 from pathlib import Path
 
 from app.protocol.encoding import decode_text, encode_text
 
-from app.data.common import RedisString, RedisList, RedisSortedSet, RedisSortedSetEntry, RedisStream, RedisStreamEntry
+from app.data.common import RedisString, RedisList, RedisSortedSet, RedisSet, RedisStream, RedisStreamEntry
 
 
 class RDBReader:
@@ -102,7 +103,7 @@ def decompress_lzf(data: bytes, expected_length: int) -> bytes:
     return bytes(result)
 
 
-def load_rdb(path: Path) -> dict[str, RedisString]:
+def load_rdb(path: Path) -> dict[str, RedisString | RedisList | RedisSet | RedisSortedSet | RedisStream]:
     try:
         data = path.read_bytes()
     except FileNotFoundError:
@@ -129,7 +130,7 @@ def parse_rdb(data: bytes) -> dict:
 
         if opcode == 0xFF:
             if int(header[5:]) >= 5:
-                reader.read(8)  # CRC64 footer; checksum validation is not implemented.
+                reader.read(8)
 
             break
 
@@ -149,7 +150,7 @@ def parse_rdb(data: bytes) -> dict:
             reader.plain_length()
         elif opcode == 0xF9:
             reader.read(1)
-        elif opcode in (0, 1, 5, 15):
+        elif opcode in (0, 1, 2, 5, 15):
             key = decode_text(reader.string())
             entry = read_entry(reader, opcode)
 
@@ -172,15 +173,19 @@ def read_entry(reader: RDBReader, opcode: int):
     if opcode == 1:
         return RedisList(values=deque(decode_text(reader.string()) for _ in range(reader.plain_length())))
 
-    if opcode == 5:
-        entries = []
+    if opcode == 2:
+        return RedisSet(members={decode_text(reader.string()) for _ in range(reader.plain_length())})
 
+    if opcode == 5:
+        scores = {}
         for _ in range(reader.plain_length()):
             member = decode_text(reader.string())
             score = struct.unpack("<d", reader.read(8))[0]
-            entries.append(RedisSortedSetEntry(value=member, score=score))
-
-        return RedisSortedSet(entries=sorted(entries, key=lambda item: (item.score, item.value)))
+            if isnan(score):
+                raise ValueError("Invalid RDB sorted-set score")
+            scores[member] = score
+        ordered = sorted((score, member) for member, score in scores.items())
+        return RedisSortedSet(scores=scores, ordered=ordered)
 
     entries = []
 
@@ -195,7 +200,7 @@ def read_entry(reader: RDBReader, opcode: int):
         values = iter(read_listpack(reader.string()))
         live, deleted, field_count = int(next(values)), int(next(values)), int(next(values))
         fields = [decode_text(next(values)) for _ in range(field_count)]
-        next(values)  # Master entry terminator.
+        next(values)
 
         for _ in range(live + deleted):
             flags, delta_ms, delta_seq = int(next(values)), int(next(values)), int(next(values))
@@ -205,7 +210,7 @@ def read_entry(reader: RDBReader, opcode: int):
             else:
                 pairs = [(decode_text(next(values)), decode_text(next(values))) for _ in range(int(next(values)))]
 
-            next(values)  # Reverse traversal count.
+            next(values)
 
             if not flags & 1:
                 entries.append(RedisStreamEntry((master_ms + delta_ms, master_seq + delta_seq), pairs))
@@ -215,7 +220,6 @@ def read_entry(reader: RDBReader, opcode: int):
     if groups or count != len(entries):
         raise ValueError("Unsupported RDB stream consumer groups or invalid entry count")
 
-    # This server has no stream trimming or deletion, so the last ID is the last entry.
     if entries and entries[-1].entry_id != (last_ms, last_seq):
         raise ValueError("Unsupported RDB stream last ID")
 
@@ -326,10 +330,15 @@ def dump_rdb(entries: dict) -> bytes:
         elif isinstance(entry, RedisList):
             opcode = 1
             payload = encode_length(len(entry.values)) + b"".join(encode_string(value) for value in entry.values)
+        elif isinstance(entry, RedisSet):
+            opcode = 2
+            payload = encode_length(len(entry.members)) + b"".join(
+                encode_string(member) for member in sorted(entry.members)
+            )
         elif isinstance(entry, RedisSortedSet):
             opcode = 5
-            payload = encode_length(len(entry.entries)) + b"".join(
-                encode_string(item.value) + struct.pack("<d", item.score) for item in entry.entries
+            payload = encode_length(len(entry.scores)) + b"".join(
+                encode_string(member) + struct.pack("<d", score) for score, member in entry.ordered
             )
         elif isinstance(entry, RedisStream):
             opcode = 15
@@ -350,6 +359,6 @@ def dump_rdb(entries: dict) -> bytes:
 
         output.extend(bytes([opcode]) + encode_string(key) + payload)
 
-    output.extend(b"\xff" + bytes(8))  # Zero disables Redis CRC64 checking.
+    output.extend(b"\xff" + bytes(8))
 
     return bytes(output)
