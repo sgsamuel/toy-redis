@@ -122,3 +122,78 @@ class SetCommandTests(CommandTestCase):
             self.assertEqual((await self.command(*tokens)).value, 'QUEUED')
         self.assertIsNone(self.store.type('members'))
         self.assertEqual((await self.command('EXEC')).value, [2, 1, 1, 1, ['b']])
+
+    async def test_intersection_and_union_single_multiple_and_repeated_keys(self):
+        self.store.sadd('first', 'a', 'b', 'c')
+        self.store.sadd('second', 'b', 'c', 'd')
+        self.store.sadd('third', 'c', 'e')
+        for command in ['SINTER', 'SUNION']:
+            self.assertCountEqual((await self.command(command, 'first')).value, ['a', 'b', 'c'])
+            self.assertCountEqual((await self.command(command, 'first', 'first')).value, ['a', 'b', 'c'])
+        self.assertCountEqual((await self.command('sinter', 'first', 'second')).value, ['b', 'c'])
+        self.assertEqual((await self.command('SINTER', 'first', 'second', 'third')).value, ['c'])
+        self.assertCountEqual((await self.command('sunion', 'first', 'second', 'third')).value,
+                              ['a', 'b', 'c', 'd', 'e'])
+        self.assertCountEqual((await self.command('SUNION', 'second', 'first', 'second')).value,
+                              ['a', 'b', 'c', 'd'])
+
+    async def test_set_operations_treat_missing_and_expired_keys_as_empty(self):
+        self.store.sadd('live', 'a', 'b')
+        self.store.sadd('expired', 'b', 'c')
+        self.store.expire('expired', 60000)
+        deadline = self.store._store['expired'].expires_at
+        for command in ['SINTER', 'SUNION']:
+            self.assertEqual((await self.command(command, 'missing')).raw, b'*0\r\n')
+        for keys in [('live', 'missing'), ('missing', 'live')]:
+            self.assertEqual((await self.command('SINTER', *keys)).value, [])
+            self.assertCountEqual((await self.command('SUNION', *keys)).value, ['a', 'b'])
+        with patch('app.data.common.time') as clock:
+            clock.monotonic.return_value = deadline + 1
+            self.assertEqual((await self.command('SINTER', 'live', 'expired')).value, [])
+            self.assertCountEqual((await self.command('SUNION', 'expired', 'live')).value, ['a', 'b'])
+        self.assertIsNone(self.store.type('missing'))
+        self.assertIsNone(self.store.type('expired'))
+
+    async def test_set_operations_validate_all_types_even_with_empty_intersections(self):
+        self.store.sadd('first', 'a')
+        self.store.sadd('second', 'b')
+        self.store.set('string', 'value')
+        self.store.hset('hash', ('field', 'value'))
+        for command in ['SINTER', 'SUNION']:
+            for key in ['string', 'hash']:
+                for keys in [('first', key), (key, 'first'), ('missing', key),
+                             (key, 'missing'), ('first', 'second', key)]:
+                    with self.subTest(command=command, keys=keys):
+                        reply = await self.command(command, *keys)
+                        self.assertTrue(reply.is_error)
+                        self.assertIn(b'WRONGTYPE', reply.raw)
+            self.assertTrue((await self.command(command)).is_error)
+
+    async def test_set_operations_preserve_inputs_versions_expiry_and_offsets(self):
+        self.store.sadd('first', 'a', 'b')
+        self.store.sadd('second', 'b', 'c')
+        self.store.expire('first', 60000)
+        version = self.store.get_key_version('first')
+        deadline = self.store._store['first'].expires_at
+        offset = self.executor.replication.offset
+        self.store.sinter('first', 'second').append('external')
+        self.store.sunion('first', 'second').clear()
+        for command in ['SINTER', 'SUNION']:
+            await self.command(command, 'first', 'second')
+        self.assertEqual(self.store.get_key_version('first'), version)
+        self.assertEqual(self.store._store['first'].expires_at, deadline)
+        self.assertEqual(self.executor.replication.offset, offset)
+        self.assertCountEqual(self.store.smembers('first'), ['a', 'b'])
+        self.assertCountEqual(self.store.smembers('second'), ['b', 'c'])
+
+    async def test_set_operations_support_binary_members_and_transactions(self):
+        self.store.sadd('first', '\udcff\x00')
+        self.store.sadd('second', '\udcff\x00')
+        for command in ['SINTER', 'SUNION']:
+            reply = await self.command(command, 'first', 'second')
+            self.assertEqual(reply.raw, b'*1\r\n$2\r\n\xff\x00\r\n')
+        await self.command('MULTI')
+        for tokens in [('SADD', 'new', 'a'), ('SINTER', 'new', 'missing'),
+                       ('SUNION', 'new', 'missing')]:
+            self.assertEqual((await self.command(*tokens)).value, 'QUEUED')
+        self.assertEqual((await self.command('EXEC')).value, [1, [], ['a']])

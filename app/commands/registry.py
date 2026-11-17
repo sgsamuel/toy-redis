@@ -6,7 +6,7 @@ from app.commands.errors import CommandError
 from app.commands.request import CommandRequest
 from app.protocol import RedisResponse
 from app.commands.handlers import auth, config, connection, pubsub, replication, transactions
-from app.commands.handlers.data import bitmap, geo, hashes, keys, lists, sets, sorted_set, streams, strings
+from app.commands.handlers.data import bitmaps, geo, hashes, keys, lists, sets, sorted_sets, streams, strings
 
 
 Handler = Callable[[CommandContext, list[str]], Awaitable[CommandResult | ExecuteTransaction]]
@@ -60,13 +60,13 @@ COMMANDS: dict[str, Command] = {
     "EXPIREAT": Command(keys.expire_handler(absolute=True), writes=True, min_args=2, max_args=3),
     "PEXPIREAT": Command(keys.expire_handler(milliseconds=True, absolute=True), writes=True, min_args=2, max_args=3),
     "PERSIST": Command(keys.handle_persist, writes=True, min_args=1, max_args=1),
-    "SETBIT": Command(bitmap.handle_setbit, writes=True, min_args=3, max_args=3),
-    "GETBIT": Command(bitmap.handle_getbit, min_args=2, max_args=2),
+    "SETBIT": Command(bitmaps.handle_setbit, writes=True, min_args=3, max_args=3),
+    "GETBIT": Command(bitmaps.handle_getbit, min_args=2, max_args=2),
     "STRLEN": Command(strings.handle_strlen, min_args=1, max_args=1),
-    "BITCOUNT": Command(bitmap.handle_bitcount, min_args=1, max_args=4, argument_counts=(1, 3, 4)),
+    "BITCOUNT": Command(bitmaps.handle_bitcount, min_args=1, max_args=4, argument_counts=(1, 3, 4)),
     "BITOP": Command(subcommands={
-        "AND": Command(bitmap.handle_bitop_and, writes=True, min_args=2),
-        "OR": Command(bitmap.handle_bitop_or, writes=True, min_args=2),
+        "AND": Command(bitmaps.handle_bitop_and, writes=True, min_args=2),
+        "OR": Command(bitmaps.handle_bitop_or, writes=True, min_args=2),
     }),
     "RPUSH": Command(lists.handle_rpush, writes=True, min_args=2),
     "LPUSH": Command(lists.handle_lpush, writes=True, min_args=2),
@@ -108,12 +108,14 @@ COMMANDS: dict[str, Command] = {
     "SCARD": Command(sets.handle_scard, min_args=1, max_args=1),
     "SREM": Command(sets.handle_srem, writes=True, min_args=2),
     "SMEMBERS": Command(sets.handle_smembers, min_args=1, max_args=1),
-    "ZADD": Command(sorted_set.handle_zadd, writes=True, min_args=3),
-    "ZRANK": Command(sorted_set.handle_zrank, min_args=2, max_args=2),
-    "ZRANGE": Command(sorted_set.handle_zrange, min_args=3, max_args=4),
-    "ZCARD": Command(sorted_set.handle_zcard, min_args=1, max_args=1),
-    "ZSCORE": Command(sorted_set.handle_zscore, min_args=2, max_args=2),
-    "ZREM": Command(sorted_set.handle_zrem, writes=True, min_args=2),
+    "SINTER": Command(sets.handle_sinter, min_args=1),
+    "SUNION": Command(sets.handle_sunion, min_args=1),
+    "ZADD": Command(sorted_sets.handle_zadd, writes=True, min_args=3),
+    "ZRANK": Command(sorted_sets.handle_zrank, min_args=2, max_args=2),
+    "ZRANGE": Command(sorted_sets.handle_zrange, min_args=3, max_args=4),
+    "ZCARD": Command(sorted_sets.handle_zcard, min_args=1, max_args=1),
+    "ZSCORE": Command(sorted_sets.handle_zscore, min_args=2, max_args=2),
+    "ZREM": Command(sorted_sets.handle_zrem, writes=True, min_args=2),
 }
 
 

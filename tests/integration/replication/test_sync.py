@@ -42,6 +42,8 @@ class ReplicationTests(unittest.IsolatedAsyncioTestCase):
                     for command in [('SADD', 'members', 'new'), ('SREM', 'members', 'c')]:
                         self.assertTrue((await client.command(*command)).raw.startswith(b'-READONLY'))
                     self.assertEqual((await client.command('SISMEMBER', 'members', 'c')).value, 1)
+                    self.assertEqual((await client.command('SUNION', 'members', 'missing')).value, ['c'])
+                    self.assertEqual((await client.command('SINTER', 'members', 'missing')).value, [])
                 await writer.command('SREM', 'members', 'c')
                 await wait_until(lambda: replica.store.type('members') is None)
 

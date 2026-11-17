@@ -4,7 +4,7 @@ from math import asin, cos, isfinite, radians, sin, sqrt
 from typing import TYPE_CHECKING
 
 from ..common import _get_sorted_set_locked
-from . import sorted_set
+from . import sorted_sets
 
 if TYPE_CHECKING:
     from ..store import RedisStore
@@ -75,7 +75,7 @@ def geoadd(
         for longitude, latitude, member in locations
     ]
 
-    return sorted_set.zadd(store, key, *pairs, condition=condition)
+    return sorted_sets.zadd(store, key, *pairs, condition=condition)
 
 
 def geopos(store: RedisStore, key: str, *members: str) -> list[tuple[float, float] | None]:

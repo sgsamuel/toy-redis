@@ -152,9 +152,13 @@ Sets contain unique, unordered string members.
 | `SCARD key` | Return the number of members |
 | `SREM key member [member ...]` | Remove members; return the number removed |
 | `SMEMBERS key` | Return all members in unspecified order |
+| `SINTER key [key ...]` | Return members present in every supplied set |
+| `SUNION key [key ...]` | Return members present in any supplied set |
 
 Missing keys behave as empty sets. Duplicate members count once. Removing the last member deletes
-its key; adding or removing members preserves existing expiry.
+its key; adding or removing members preserves existing expiry. `SINTER` and `SUNION` return unique
+members in unspecified order without changing their inputs. A missing key makes an intersection
+empty and contributes no members to a union.
 
 ### Hashes
 

@@ -194,6 +194,7 @@ class AOFReplayTests(unittest.IsolatedAsyncioTestCase):
         for tokens in [['SADD', 'members', 'a', 'a'], ['SREM', 'members', 'missing'],
                        ['SREM', 'missing', 'a'], ['SCARD', 'members'],
                        ['SISMEMBER', 'members', 'a'], ['SMEMBERS', 'members'],
+                       ['SINTER', 'members', 'missing'], ['SUNION', 'members', 'missing'],
                        ['SADD', 'members']]:
             await executor.execute(tokens, session)
         self.assertEqual(self.manager.file.read_bytes(), before)

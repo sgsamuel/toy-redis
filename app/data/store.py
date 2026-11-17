@@ -7,7 +7,7 @@ import time
 
 from app.persistence.rdb import dump_rdb, load_rdb, parse_rdb
 from .common import RedisString, RedisList, RedisStream, RedisStreamEntry, RedisSortedSet, RedisSet, RedisHash
-from .entries import strings, lists, streams, sorted_set, bitmap, geo, sets, hashes
+from .entries import strings, lists, streams, sorted_sets, bitmaps, geo, sets, hashes
 
 
 class RedisStore:
@@ -137,19 +137,19 @@ class RedisStore:
             return True
 
     def setbit(self, key: str, offset: int, value: int) -> int:
-        return bitmap.setbit(self, key, offset, value)
+        return bitmaps.setbit(self, key, offset, value)
 
     def getbit(self, key: str, offset: int) -> int:
-        return bitmap.getbit(self, key, offset)
+        return bitmaps.getbit(self, key, offset)
 
     def strlen(self, key: str) -> int:
         return strings.strlen(self, key)
 
     def bitcount(self, key: str, start: int = 0, end: int = -1, unit: str = "BYTE") -> int:
-        return bitmap.bitcount(self, key, start, end, unit)
+        return bitmaps.bitcount(self, key, start, end, unit)
 
     def bitop(self, operation: str, destination: str, *keys: str) -> int:
-        return bitmap.bitop(self, operation, destination, *keys)
+        return bitmaps.bitop(self, operation, destination, *keys)
 
     def rpush(self, key: str, *values: str) -> int:
         return lists.rpush(self, key, *values)
@@ -218,27 +218,33 @@ class RedisStore:
     def smembers(self, key: str) -> list[str]:
         return sets.smembers(self, key)
 
+    def sinter(self, *keys: str) -> list[str]:
+        return sets.sinter(self, *keys)
+
+    def sunion(self, *keys: str) -> list[str]:
+        return sets.sunion(self, *keys)
+
     def zadd(
         self, key: str, *pairs: tuple[float, str], condition: str | None = None
     ) -> int:
-        return sorted_set.zadd(self, key, *pairs, condition=condition)
+        return sorted_sets.zadd(self, key, *pairs, condition=condition)
 
     def zrank(self, key: str, member: str) -> int | None:
-        return sorted_set.zrank(self, key, member)
+        return sorted_sets.zrank(self, key, member)
 
     def zrange(
         self, key: str, start: int, stop: int, *, with_scores: bool = False
     ) -> list[str] | list[tuple[str, float]]:
-        return sorted_set.zrange(self, key, start, stop, with_scores=with_scores)
+        return sorted_sets.zrange(self, key, start, stop, with_scores=with_scores)
 
     def zcard(self, key: str) -> int:
-        return sorted_set.zcard(self, key)
+        return sorted_sets.zcard(self, key)
 
     def zscore(self, key: str, member: str) -> float | None:
-        return sorted_set.zscore(self, key, member)
+        return sorted_sets.zscore(self, key, member)
 
     def zrem(self, key: str, *members: str) -> int:
-        return sorted_set.zrem(self, key, *members)
+        return sorted_sets.zrem(self, key, *members)
 
     def geoadd(
         self, key: str, *locations: tuple[float, float, str], condition: str | None = None

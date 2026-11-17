@@ -9,6 +9,8 @@ async def randomized_storage(scale):
     store = RedisStore()
     rng = random.Random(42)
     members, set_members, values, bitmap = {}, set(), [], bytearray(128)
+    other_members = {'0', '1', '199'}
+    store.sadd('other', *other_members)
     hash_fields = {}
     count = 10000 * scale
     for _ in range(count):
@@ -61,6 +63,8 @@ async def randomized_storage(scale):
         assert store.lrange('list', 0, -1) == values
         assert set(store.smembers('members')) == set_members
         assert store.scard('members') == len(set_members)
+        assert set(store.sinter('members', 'other')) == set_members & other_members
+        assert set(store.sunion('members', 'other')) == set_members | other_members
         assert store.hgetall('hash') == hash_fields
         assert store.hlen('hash') == len(hash_fields)
         assert store.bitcount('bitmap') == sum(value.bit_count() for value in bitmap)

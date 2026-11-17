@@ -33,3 +33,13 @@ async def handle_srem(context: CommandContext, args: list[str]) -> CommandResult
 async def handle_smembers(context: CommandContext, args: list[str]) -> CommandResult:
     members = context.store.smembers(args[0])
     return CommandResult(RedisResponse.array([RedisResponse.bulk(member) for member in members]))
+
+
+async def handle_sinter(context: CommandContext, args: list[str]) -> CommandResult:
+    members = context.store.sinter(*args)
+    return CommandResult(RedisResponse.array([RedisResponse.bulk(member) for member in members]))
+
+
+async def handle_sunion(context: CommandContext, args: list[str]) -> CommandResult:
+    members = context.store.sunion(*args)
+    return CommandResult(RedisResponse.array([RedisResponse.bulk(member) for member in members]))

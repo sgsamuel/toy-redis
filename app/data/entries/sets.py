@@ -55,3 +55,27 @@ def smembers(store: RedisStore, key: str) -> list[str]:
     with store._lock:
         entry = _get_set_locked(store, key)
         return list(entry.members) if entry is not None else []
+
+
+def sinter(store: RedisStore, *keys: str) -> list[str]:
+    with store._lock:
+        entries = [_get_set_locked(store, key) for key in keys]
+        if not entries or any(entry is None for entry in entries):
+            return []
+        members = [entry.members for entry in entries]
+        result = min(members, key=len).copy()
+        for source in members:
+            result.intersection_update(source)
+            if not result:
+                break
+        return list(result)
+
+
+def sunion(store: RedisStore, *keys: str) -> list[str]:
+    with store._lock:
+        result = set()
+        for key in keys:
+            entry = _get_set_locked(store, key)
+            if entry is not None:
+                result.update(entry.members)
+        return list(result)
