@@ -44,3 +44,25 @@ class ReplicationTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual((await client.command('SISMEMBER', 'members', 'c')).value, 1)
                 await writer.command('SREM', 'members', 'c')
                 await wait_until(lambda: replica.store.type('members') is None)
+
+    async def test_hash_snapshot_mutations_and_replica_reads(self):
+        executor = make_executor()
+        executor.store.hset('hash', ('a', 'before'), ('b', 'remove'), ('\udcff', '\x00'))
+        executor.store.expire('hash', 60000)
+        async with running_server(executor) as primary:
+            writer = await primary.connect()
+            async with following(primary) as replica:
+                self.assertEqual(replica.store.hgetall('hash'), executor.store.hgetall('hash'))
+                self.assertAlmostEqual(replica.store._store['hash'].expires_at,
+                                       executor.store._store['hash'].expires_at, delta=0.02)
+                self.assertEqual((await writer.command('HSET', 'hash', 'a', 'after')).value, 0)
+                await writer.command('HDEL', 'hash', 'b')
+                self.assertEqual((await writer.command('WAIT', '1', '1000')).value, 1)
+                self.assertEqual(replica.store.hgetall('hash'), {'a': 'after', '\udcff': '\x00'})
+                async with running_server(replica) as secondary:
+                    client = await secondary.connect()
+                    self.assertEqual((await client.command('HGET', 'hash', 'a')).value, 'after')
+                    for tokens in [('HSET', 'hash', 'a', 'forbidden'), ('HDEL', 'hash', 'a')]:
+                        self.assertTrue((await client.command(*tokens)).raw.startswith(b'-READONLY'))
+                await writer.command('HDEL', 'hash', 'a', '\udcff')
+                await wait_until(lambda: replica.store.type('hash') is None)

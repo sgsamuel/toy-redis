@@ -81,6 +81,8 @@ class RDBTests(unittest.TestCase):
         self.store.set('text', 'é', expiry_ms=60000)
         self.store.setbit('bits', 0, 1)
         self.store.rpush('list', 'a', 'b')
+        self.store.hset('hash', ('field', 'value'), ('\udcff\x00', 'binary\udcff'))
+        self.store.expire('hash', 60000)
         self.store.sadd('members', 'a', 'b', '\udcff\x00')
         self.store.expire('members', 60000)
         self.store.zadd('scores', (1.0, 'a'), (2.0, 'b'))
@@ -93,6 +95,10 @@ class RDBTests(unittest.TestCase):
         self.assertEqual(restored.get('text'), 'é'.encode())
         self.assertEqual(restored.get('bits'), b'\x80')
         self.assertEqual(restored.lrange('list', 0, -1), ['a', 'b'])
+        self.assertEqual(restored.type('hash'), 'hash')
+        self.assertEqual(restored.hgetall('hash'), {'field': 'value', '\udcff\x00': 'binary\udcff'})
+        self.assertAlmostEqual(restored._store['hash'].expires_at,
+                               self.store._store['hash'].expires_at, delta=0.01)
         self.assertEqual(restored.type('members'), 'set')
         self.assertCountEqual(restored.smembers('members'), ['a', 'b', '\udcff\x00'])
         self.assertAlmostEqual(restored._store['members'].expires_at,
@@ -147,3 +153,15 @@ class RDBTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.load_rdb(self.path)
         self.assertEqual(self.store.keys('*'), [])
+
+    def test_plain_hash_encoding_and_truncation(self):
+        body = b'\x04' + string(b'hash') + length(2)
+        body += string(b'field') + string(b'value') + string(b'\xff') + string(b'\x00\xff')
+        self.path.write_bytes(snapshot(body))
+        self.store.load_rdb(self.path)
+        self.assertEqual(self.store.hgetall('hash'), {'field': 'value', '\udcff': '\x00\udcff'})
+        self.assertEqual(self.store.hset('hash', ('field', 'updated')), 0)
+        self.assertEqual(self.store.hdel('hash', '\udcff'), 1)
+        self.path.write_bytes(snapshot(body)[:-10])
+        with self.assertRaises(ValueError):
+            self.store.load_rdb(self.path)

@@ -9,9 +9,10 @@ async def randomized_storage(scale):
     store = RedisStore()
     rng = random.Random(42)
     members, set_members, values, bitmap = {}, set(), [], bytearray(128)
+    hash_fields = {}
     count = 10000 * scale
     for _ in range(count):
-        operation = rng.randrange(8)
+        operation = rng.randrange(10)
         if operation == 0:
             member, score = str(rng.randrange(200)), float(rng.randrange(100))
             expected = int(member not in members)
@@ -40,6 +41,16 @@ async def randomized_storage(scale):
             expected = int(member in set_members)
             set_members.discard(member)
             assert store.srem('members', member, member) == expected
+        elif operation == 6:
+            field, value = str(rng.randrange(200)), str(rng.randrange(100))
+            expected = int(field not in hash_fields)
+            hash_fields[field] = value
+            assert store.hset('hash', (field, value)) == expected
+        elif operation == 7:
+            field = str(rng.randrange(200))
+            expected = int(field in hash_fields)
+            hash_fields.pop(field, None)
+            assert store.hdel('hash', field, field) == expected
         else:
             offset, bit = rng.randrange(1024), rng.randrange(2)
             previous = (bitmap[offset // 8] >> (7 - offset % 8)) & 1
@@ -50,5 +61,7 @@ async def randomized_storage(scale):
         assert store.lrange('list', 0, -1) == values
         assert set(store.smembers('members')) == set_members
         assert store.scard('members') == len(set_members)
+        assert store.hgetall('hash') == hash_fields
+        assert store.hlen('hash') == len(hash_fields)
         assert store.bitcount('bitmap') == sum(value.bit_count() for value in bitmap)
     return {'operations': count, 'seed': 42, 'reference_model_matches': True}

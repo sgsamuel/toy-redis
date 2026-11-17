@@ -53,6 +53,8 @@ class AOFReplayTests(unittest.IsolatedAsyncioTestCase):
         commands = [
             ['SET', 'number', '1'], ['INCR', 'number'],
             ['RPUSH', 'list', 'a', 'b'], ['LPOP', 'list'],
+            ['HSET', 'hash', 'a', '1', 'b', '2', '\udcff', '\x00'],
+            ['HSET', 'hash', 'a', 'updated'], ['HDEL', 'hash', 'b'],
             ['SADD', 'members', 'a', 'b', '\udcff\x00'], ['SREM', 'members', 'a'],
             ['ZADD', 'scores', 'NX', '1', 'a', '2', 'b'],
             ['ZADD', 'scores', 'XX', '3', 'a', '4', 'missing'], ['ZREM', 'scores', 'a'],
@@ -199,3 +201,22 @@ class AOFReplayTests(unittest.IsolatedAsyncioTestCase):
         restored = self.executor()
         self.assertEqual(await self.manager.replay(restored.execute), 2)
         self.assertIsNone(restored.store.type('members'))
+
+    async def test_hash_noops_reads_and_deletion_replay(self):
+        executor = self.executor()
+        session = ClientSession()
+        await executor.execute(['HSET', 'hash', 'a', '1'], session)
+        before = self.manager.file.read_bytes()
+        for tokens in [['HSET', 'hash', 'a', '1'], ['HDEL', 'hash', 'missing'],
+                       ['HGET', 'hash', 'a'], ['HGETALL', 'hash'], ['HEXISTS', 'hash', 'a'],
+                       ['HLEN', 'hash'], ['HSET', 'hash', 'a', 'bad', 'unpaired']]:
+            await executor.execute(tokens, session)
+        self.assertEqual(self.manager.file.read_bytes(), before)
+        await executor.execute(['HSET', 'hash', 'a', 'updated'], session)
+        restored = self.executor()
+        self.assertEqual(await self.manager.replay(restored.execute), 2)
+        self.assertEqual(restored.store.hget('hash', 'a'), 'updated')
+        await executor.execute(['HDEL', 'hash', 'a'], session)
+        restored = self.executor()
+        self.assertEqual(await self.manager.replay(restored.execute), 3)
+        self.assertIsNone(restored.store.type('hash'))

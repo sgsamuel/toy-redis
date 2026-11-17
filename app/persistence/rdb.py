@@ -9,7 +9,7 @@ from pathlib import Path
 
 from app.protocol.encoding import decode_text, encode_text
 
-from app.data.common import RedisString, RedisList, RedisSortedSet, RedisSet, RedisStream, RedisStreamEntry
+from app.data.common import RedisString, RedisList, RedisSortedSet, RedisSet, RedisStream, RedisStreamEntry, RedisHash
 
 
 class RDBReader:
@@ -103,7 +103,7 @@ def decompress_lzf(data: bytes, expected_length: int) -> bytes:
     return bytes(result)
 
 
-def load_rdb(path: Path) -> dict[str, RedisString | RedisList | RedisSet | RedisSortedSet | RedisStream]:
+def load_rdb(path: Path) -> dict[str, RedisString | RedisList | RedisSet | RedisSortedSet | RedisStream | RedisHash]:
     try:
         data = path.read_bytes()
     except FileNotFoundError:
@@ -150,7 +150,7 @@ def parse_rdb(data: bytes) -> dict:
             reader.plain_length()
         elif opcode == 0xF9:
             reader.read(1)
-        elif opcode in (0, 1, 2, 5, 15):
+        elif opcode in (0, 1, 2, 4, 5, 15):
             key = decode_text(reader.string())
             entry = read_entry(reader, opcode)
 
@@ -175,6 +175,13 @@ def read_entry(reader: RDBReader, opcode: int):
 
     if opcode == 2:
         return RedisSet(members={decode_text(reader.string()) for _ in range(reader.plain_length())})
+
+    if opcode == 4:
+        fields = {}
+        for _ in range(reader.plain_length()):
+            field = decode_text(reader.string())
+            fields[field] = decode_text(reader.string())
+        return RedisHash(fields=fields)
 
     if opcode == 5:
         scores = {}
@@ -334,6 +341,12 @@ def dump_rdb(entries: dict) -> bytes:
             opcode = 2
             payload = encode_length(len(entry.members)) + b"".join(
                 encode_string(member) for member in sorted(entry.members)
+            )
+        elif isinstance(entry, RedisHash):
+            opcode = 4
+            payload = encode_length(len(entry.fields)) + b"".join(
+                encode_string(field) + encode_string(value)
+                for field, value in sorted(entry.fields.items())
             )
         elif isinstance(entry, RedisSortedSet):
             opcode = 5

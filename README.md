@@ -2,7 +2,7 @@
 
 An asyncio Redis-compatible server built from the
 [CodeCrafters Redis challenge](https://codecrafters.io/challenges/redis). Implements a subset of
-Redis over RESP2, including strings, bitmaps, lists, sets, streams, sorted sets, geospatial indexes,
+Redis over RESP2, including strings, bitmaps, lists, sets, hashes, streams, sorted sets, geospatial indexes,
 pub/sub, authentication, transactions, replication, and RDB/AOF persistence.
 
 [Quick start](#quick-start) · [Configuration](#configuration) ·
@@ -156,6 +156,23 @@ Sets contain unique, unordered string members.
 Missing keys behave as empty sets. Duplicate members count once. Removing the last member deletes
 its key; adding or removing members preserves existing expiry.
 
+### Hashes
+
+Hashes map unique, case-sensitive fields to string values.
+
+| Command | Behavior |
+| --- | --- |
+| `HSET key field value [field value ...]` | Add or update fields; return the number of new fields |
+| `HGET key field` | Return the value, or null for a missing key or field |
+| `HDEL key field [field ...]` | Remove fields; return the number removed |
+| `HGETALL key` | Return alternating fields and values in unspecified order |
+| `HEXISTS key field` | Return `1` if the field exists, otherwise `0` |
+| `HLEN key` | Return the number of fields |
+
+Missing keys behave as empty hashes. Repeated fields in `HSET` use the last supplied value and
+count once when newly added. Removing the final field deletes the key. Field updates and deletions
+preserve existing key expiry.
+
 ### Streams
 
 Streams contain entries ordered by IDs, with field/value pairs in each entry.
@@ -224,7 +241,7 @@ Searches scan the sorted set.
 | --- | --- |
 | `PING [message]` | Return `PONG`, or echo the supplied message |
 | `ECHO message` | Return the message |
-| `TYPE key` | Return `string`, `list`, `set`, `stream`, `zset`, or `none` |
+| `TYPE key` | Return `string`, `list`, `set`, `hash`, `stream`, `zset`, or `none` |
 | `KEYS pattern` | List matching, unexpired keys; `*` matches all keys |
 | `QUIT` | Reply `OK` and close the connection |
 | `RESET` | Clear subscriptions, queued transaction, watched keys, and authenticated identity |
@@ -312,7 +329,7 @@ By default, startup loads `dir/dbfilename`. With `--appendonly yes`, it replays 
 ### RDB snapshots
 
 A missing snapshot starts an empty store. The loader restores database 0, including strings, plain
-lists and sets, binary-score sorted sets, and stream listpacks without consumer groups. Strings
+lists, sets, and hashes, binary-score sorted sets, and stream listpacks without consumer groups. Strings
 support integer and LZF encodings. Expiry timestamps are preserved; expired keys are skipped.
 
 Other RDB encodings, stream consumer groups, checksum validation, and selecting other databases are
@@ -375,7 +392,7 @@ Tests are grouped by target:
 | Location | Coverage |
 | --- | --- |
 | `tests/unit/commands/` | Authentication, configuration, transactions, and command errors |
-| `tests/unit/commands/data/` | Strings, bitmaps, lists, sets, streams, sorted sets, geo, and expiry |
+| `tests/unit/commands/data/` | Strings, bitmaps, lists, sets, hashes, streams, sorted sets, geo, and expiry |
 | `tests/unit/network/`, `tests/unit/protocol/` | Pub/sub state, output queues, and RESP framing |
 | `tests/unit/persistence/`, `tests/unit/replication/`, `tests/unit/startup/` | RDB, AOF, replica command handling, and startup |
 | `tests/integration/` | Socket-based command, network, persistence, and replication tests |
@@ -416,7 +433,8 @@ rather than production capacity.
 
 Sorted sets keep a member-to-score dictionary and a list ordered by `(score, member)`. Score
 lookups use the dictionary; ranks use binary search. Single inserts and removals still require
-list shifts, while batch writes merge or filter the ordered index once. Sets use Python hash sets.
+list shifts, while batch writes merge or filter the ordered index once. Sets use Python hash sets;
+hashes use dictionaries.
 
 Data helpers ending in `_locked` require the caller to hold the store lock. Command handlers return
 responses and mutation metadata for the executor to process.

@@ -6,7 +6,7 @@ from app.commands.errors import CommandError
 from app.commands.request import CommandRequest
 from app.protocol import RedisResponse
 from app.commands.handlers import auth, config, connection, pubsub, replication, transactions
-from app.commands.handlers.data import bitmap, geo, keys, lists, sets, sorted_set, streams, strings
+from app.commands.handlers.data import bitmap, geo, hashes, keys, lists, sets, sorted_set, streams, strings
 
 
 Handler = Callable[[CommandContext, list[str]], Awaitable[CommandResult | ExecuteTransaction]]
@@ -97,6 +97,12 @@ COMMANDS: dict[str, Command] = {
     "GEOPOS": Command(geo.handle_geopos, min_args=2),
     "GEODIST": Command(geo.handle_geodist, min_args=3, max_args=4),
     "GEOSEARCH": Command(geo.handle_geosearch, min_args=6),
+    "HSET": Command(hashes.handle_hset, writes=True, min_args=3, argument_step=2),
+    "HGET": Command(hashes.handle_hget, min_args=2, max_args=2),
+    "HDEL": Command(hashes.handle_hdel, writes=True, min_args=2),
+    "HGETALL": Command(hashes.handle_hgetall, min_args=1, max_args=1),
+    "HEXISTS": Command(hashes.handle_hexists, min_args=2, max_args=2),
+    "HLEN": Command(hashes.handle_hlen, min_args=1, max_args=1),
     "SADD": Command(sets.handle_sadd, writes=True, min_args=2),
     "SISMEMBER": Command(sets.handle_sismember, min_args=2, max_args=2),
     "SCARD": Command(sets.handle_scard, min_args=1, max_args=1),

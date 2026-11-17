@@ -48,6 +48,15 @@ class RedisStream:
 
 
 @dataclass
+class RedisHash:
+    fields: dict[str, str] = field(default_factory=dict)
+    expires_at: float | None = None
+
+    def is_expired(self) -> bool:
+        return self.expires_at is not None and time.monotonic() > self.expires_at
+
+
+@dataclass
 class RedisSet:
     members: set[str] = field(default_factory=set)
     expires_at: float | None = None
@@ -108,5 +117,12 @@ def _get_set_locked(store: RedisStore, key: str) -> RedisSet | None:
 def _get_sorted_set_locked(store: RedisStore, key: str) -> RedisSortedSet | None:
     entry = store._get_entry_locked(key)
     if entry is not None and not isinstance(entry, RedisSortedSet):
+        raise ValueError(WRONG_TYPE)
+    return entry
+
+
+def _get_hash_locked(store: RedisStore, key: str) -> RedisHash | None:
+    entry = store._get_entry_locked(key)
+    if entry is not None and not isinstance(entry, RedisHash):
         raise ValueError(WRONG_TYPE)
     return entry

@@ -6,13 +6,13 @@ from pathlib import Path
 import time
 
 from app.persistence.rdb import dump_rdb, load_rdb, parse_rdb
-from .common import RedisString, RedisList, RedisStream, RedisStreamEntry, RedisSortedSet, RedisSet
-from .entries import strings, lists, streams, sorted_set, bitmap, geo, sets
+from .common import RedisString, RedisList, RedisStream, RedisStreamEntry, RedisSortedSet, RedisSet, RedisHash
+from .entries import strings, lists, streams, sorted_set, bitmap, geo, sets, hashes
 
 
 class RedisStore:
     def __init__(self):
-        self._store: dict[str, RedisString | RedisList | RedisStream | RedisSortedSet | RedisSet] = {}
+        self._store: dict[str, RedisString | RedisList | RedisStream | RedisSortedSet | RedisSet | RedisHash] = {}
 
         self._list_waiters: dict[str, deque[asyncio.Future[str]]] = {}
         self._stream_waiters: dict[str, deque[asyncio.Future[None]]] = {}
@@ -24,7 +24,7 @@ class RedisStore:
         """Increment the key version; the caller must hold _lock."""
         self._key_versions[key] = self._key_versions.get(key, 0) + 1
 
-    def _get_entry_locked(self, key: str) -> RedisString | RedisList | RedisStream | RedisSortedSet | RedisSet | None:
+    def _get_entry_locked(self, key: str) -> RedisString | RedisList | RedisStream | RedisSortedSet | RedisSet | RedisHash | None:
         """Read and expire a key; the caller must hold _lock."""
         entry = self._store.get(key)
         if entry is not None and entry.is_expired():
@@ -53,6 +53,8 @@ class RedisStore:
                 return "zset"
             if isinstance(entry, RedisSet):
                 return "set"
+            if isinstance(entry, RedisHash):
+                return "hash"
 
         raise TypeError(f"Unsupported entry type: {type(entry).__name__}")
 
@@ -182,6 +184,24 @@ class RedisStore:
         self, requests: list[tuple[str, str]], block_ms: int
     ) -> list[tuple[str, list[RedisStreamEntry]]]:
         return await streams.xread_blocking(self, requests, block_ms)
+
+    def hset(self, key: str, *pairs: tuple[str, str]) -> int:
+        return hashes.hset(self, key, *pairs)
+
+    def hget(self, key: str, field: str) -> str | None:
+        return hashes.hget(self, key, field)
+
+    def hdel(self, key: str, *fields: str) -> int:
+        return hashes.hdel(self, key, *fields)
+
+    def hgetall(self, key: str) -> dict[str, str]:
+        return hashes.hgetall(self, key)
+
+    def hexists(self, key: str, field: str) -> bool:
+        return hashes.hexists(self, key, field)
+
+    def hlen(self, key: str) -> int:
+        return hashes.hlen(self, key)
 
     def sadd(self, key: str, *members: str) -> int:
         return sets.sadd(self, key, *members)
