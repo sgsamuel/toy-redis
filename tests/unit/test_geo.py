@@ -72,3 +72,29 @@ class GeoTests(unittest.IsolatedAsyncioTestCase):
             self.executor.store.zadd('geo', (score, 'point'))
             self.assertTrue((await self.command('GEOPOS', 'geo', 'point')).is_error)
         self.assertEqual((await self.command('PING')).value, 'PONG')
+
+    async def test_geoadd_nx_xx_conditions(self):
+        store = self.executor.store
+        self.assertEqual((await self.command('GEOADD', 'places', 'xx', '0', '0', 'a')).value, 0)
+        self.assertIsNone(store.type('places'))
+        self.assertEqual(self.executor.replication.offset, 0)
+        self.assertEqual((await self.command('GEOADD', 'places', 'nx', '0', '0', 'a')).value, 1)
+        original = store.zscore('places', 'a')
+        version = store.get_key_version('places')
+        offset = self.executor.replication.offset
+        await self.command('GEOADD', 'places', 'NX', '1', '1', 'a')
+        self.assertEqual(store.get_key_version('places'), version)
+        self.assertEqual(self.executor.replication.offset, offset)
+        self.assertEqual((await self.command('GEOADD', 'places', 'NX', '1', '1', 'a',
+                                            '2', '2', 'b')).value, 1)
+        self.assertEqual(store.zscore('places', 'a'), original)
+        self.assertEqual((await self.command('GEOADD', 'places', 'XX', '3', '3', 'a',
+                                            '4', '4', 'missing')).value, 0)
+        self.assertNotEqual(store.zscore('places', 'a'), original)
+        self.assertIsNone(store.zscore('places', 'missing'))
+        version = store.get_key_version('places')
+        for options in [('NX', 'XX', '0', '0', 'a'), ('NX', '0', '0'),
+                        ('XX', '0', '0', 'a', '181', '0', 'bad')]:
+            with self.subTest(options=options):
+                self.assertTrue((await self.command('GEOADD', 'places', *options)).is_error)
+                self.assertEqual(store.get_key_version('places'), version)

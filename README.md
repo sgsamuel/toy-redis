@@ -48,7 +48,7 @@ redis-cli KEYS '*'
 ## Data types and commands
 
 Command and subcommand names are case insensitive. Keys, members, channels, usernames, and passwords
-are case sensitive. In the syntax below, brackets indicate optional arguments, `or` separates
+are case sensitive. In the syntax below, brackets indicate optional arguments, `|` separates
 alternatives, and `...` indicates repetition.
 
 ### Strings
@@ -57,7 +57,7 @@ Strings hold text or byte values; bitmap operations share the same storage. `STR
 
 | Command | Behavior |
 | --- | --- |
-| `SET key value [NX or XX] [EX seconds or PX milliseconds or EXAT timestamp or PXAT timestamp]` | Store a value, optionally with a condition and expiry |
+| `SET key value [NX \| XX] [EX seconds \| PX milliseconds \| EXAT timestamp \| PXAT timestamp]` | Store a value, optionally with a condition and expiry |
 | `GET key` | Read a value; return null for a missing or expired key |
 | `INCR key` | Increment an integer value; initialize a missing key to `1` |
 | `DECR key` | Decrement a signed 64-bit integer, starting from zero for a missing key; preserve its expiry |
@@ -77,10 +77,10 @@ These commands work on every data type.
 | `PTTL key` | Return the remaining expiry in milliseconds |
 | `EXPIRETIME key` | Return the Unix expiry timestamp in seconds |
 | `PEXPIRETIME key` | Return the Unix expiry timestamp in milliseconds |
-| `EXPIRE key seconds [NX or XX or GT or LT]` | Set relative expiry in seconds |
-| `PEXPIRE key milliseconds [NX or XX or GT or LT]` | Set relative expiry in milliseconds |
-| `EXPIREAT key timestamp [NX or XX or GT or LT]` | Set absolute Unix expiry in seconds |
-| `PEXPIREAT key timestamp [NX or XX or GT or LT]` | Set absolute Unix expiry in milliseconds |
+| `EXPIRE key seconds [NX \| XX \| GT \| LT]` | Set relative expiry in seconds |
+| `PEXPIRE key milliseconds [NX \| XX \| GT \| LT]` | Set relative expiry in milliseconds |
+| `EXPIREAT key timestamp [NX \| XX \| GT \| LT]` | Set absolute Unix expiry in seconds |
+| `PEXPIREAT key timestamp [NX \| XX \| GT \| LT]` | Set absolute Unix expiry in milliseconds |
 | `PERSIST key` | Remove expiry; return `1` when changed, otherwise `0` |
 
 `TTL`, `PTTL`, `EXPIRETIME`, and `PEXPIRETIME` return `-2` for missing keys and `-1` for persistent
@@ -142,14 +142,16 @@ name.
 
 | Command | Behavior |
 | --- | --- |
-| `ZADD key score member [score member ...]` | Add or update members; return the number of new members |
+| `ZADD key [NX \| XX] score member [score member ...]` | Add \| update members; return the number of new members |
 | `ZRANK key member` | Return a member's zero-based rank, or null |
-| `ZRANGE key start stop` | Read an inclusive range by rank; negative indexes count from the end |
+| `ZRANGE key start stop [WITHSCORES]` | Read an inclusive range by rank; optionally return alternating members and scores; negative indexes count from the end |
 | `ZCARD key` | Return the number of members |
 | `ZSCORE key member` | Return a member's score, or null |
 | `ZREM key member [member ...]` | Remove members; delete the key when the set becomes empty |
 
-Optional Redis flags such as `ZADD NX` and `ZRANGE WITHSCORES` are not implemented.
+`ZADD NX` adds only new members; `ZADD XX` updates only existing members. The flags are mutually
+exclusive and case insensitive. The return value counts new members, so `XX` returns `0` even when
+scores change.
 
 ### Geospatial indexes
 
@@ -158,10 +160,12 @@ sorted-set commands.
 
 | Command | Behavior |
 | --- | --- |
-| `GEOADD key longitude latitude member [longitude latitude member ...]` | Add or update locations; return the number of new members |
+| `GEOADD key [NX \| XX] longitude latitude member [longitude latitude member ...]` | Add \| update locations; return the number of new members |
 | `GEOPOS key member [member ...]` | Return longitude/latitude pairs, with null entries for missing members |
 | `GEODIST key member1 member2 [unit]` | Return the distance, or null if either member is missing |
 | `GEOSEARCH key ...` | Find members inside a circle or box |
+
+`GEOADD` supports the same `NX` and `XX` conditions as `ZADD`.
 
 `GEOSEARCH` accepts one center and one search shape:
 

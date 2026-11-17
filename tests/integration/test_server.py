@@ -133,7 +133,7 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_replication_restores_mixed_snapshot_and_wait_offsets(self):
         executor = make_executor()
-        executor.store.set('text', 'before', px=60000)
+        executor.store.set('text', 'before', expiry_ms=60000)
         executor.store.rpush('list', 'a', 'b')
         executor.store.zadd('scores', (1.0, 'member'))
         executor.store.xadd('stream', '1-0', [('f', 'value')])

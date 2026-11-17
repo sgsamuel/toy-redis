@@ -8,10 +8,14 @@ if TYPE_CHECKING:
     from ..store import RedisStore
 
 
-def zadd(store: RedisStore, key: str, *pairs: tuple[float, str]) -> int:
+def zadd(
+    store: RedisStore, key: str, *pairs: tuple[float, str], condition: str | None = None
+) -> int:
     with store._lock:
         entry = _get_sorted_set_locked(store, key)
         if entry is None:
+            if condition == "XX":
+                return 0
             entry = RedisSortedSet(entries=[])
             store._store[key] = entry
 
@@ -21,6 +25,9 @@ def zadd(store: RedisStore, key: str, *pairs: tuple[float, str]) -> int:
 
         for score, member in pairs:
             existing = members.get(member)
+            if ((condition == "NX" and existing is not None)
+                    or (condition == "XX" and existing is None)):
+                continue
             if existing is None:
                 members[member] = RedisSortedSetEntry(value=member, score=score)
                 added += 1
@@ -50,7 +57,9 @@ def zrank(store: RedisStore, key: str, member: str) -> int | None:
         return None
 
 
-def zrange(store: RedisStore, key: str, start: int, stop: int) -> list[str]:
+def zrange(
+    store: RedisStore, key: str, start: int, stop: int, *, with_scores: bool = False
+) -> list[str] | list[tuple[str, float]]:
     with store._lock:
         entry = _get_sorted_set_locked(store, key)
 
@@ -64,7 +73,10 @@ def zrange(store: RedisStore, key: str, start: int, stop: int) -> list[str]:
         if stop < start:
             return []
 
-        return [item.value for item in entry.entries[start:stop + 1]]
+        items = entry.entries[start:stop + 1]
+        if with_scores:
+            return [(item.value, item.score) for item in items]
+        return [item.value for item in items]
 
 
 def zcard(store: RedisStore, key: str) -> int:

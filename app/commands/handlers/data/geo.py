@@ -9,10 +9,18 @@ from ...common import CommandContext, CommandResult, wrong_arguments
 
 
 async def handle_geoadd(context: CommandContext, args: list[str]) -> CommandResult:
-    if len(args) < 4 or len(args) % 3 != 1:
+    if len(args) < 4:
         return CommandResult(wrong_arguments("GEOADD"))
 
     key, *coordinates = args
+    condition = None
+    while coordinates and coordinates[0].upper() in ("NX", "XX"):
+        option = coordinates.pop(0).upper()
+        if condition is not None and condition != option:
+            return CommandResult(RedisResponse.error("NX and XX options are mutually exclusive"))
+        condition = option
+    if not coordinates or len(coordinates) % 3:
+        return CommandResult(wrong_arguments("GEOADD"))
     locations = []
 
     for raw_longitude, raw_latitude, member in zip(
@@ -35,11 +43,12 @@ async def handle_geoadd(context: CommandContext, args: list[str]) -> CommandResu
 
         locations.append((longitude, latitude, member))
 
-    added = context.store.geoadd(key, *locations)
+    version = context.store.get_key_version(key)
+    added = context.store.geoadd(key, *locations, condition=condition)
 
     return CommandResult(
         RedisResponse.integer(added),
-        mutation=["GEOADD", *args],
+        mutation=["GEOADD", *args] if context.store.get_key_version(key) != version else None,
     )
 
 

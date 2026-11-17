@@ -68,13 +68,15 @@ def decode_coordinates(score: float) -> tuple[float, float]:
     return longitude, latitude
 
 
-def geoadd(store: RedisStore, key: str, *locations: tuple[float, float, str]) -> int:
+def geoadd(
+    store: RedisStore, key: str, *locations: tuple[float, float, str], condition: str | None = None
+) -> int:
     pairs = [
         (encode_coordinates(longitude, latitude), member)
         for longitude, latitude, member in locations
     ]
 
-    return sorted_set.zadd(store, key, *pairs)
+    return sorted_set.zadd(store, key, *pairs, condition=condition)
 
 
 def geopos(store: RedisStore, key: str, *members: str) -> list[tuple[float, float] | None]:

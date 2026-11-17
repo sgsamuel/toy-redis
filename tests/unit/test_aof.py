@@ -54,9 +54,11 @@ class AOFReplayTests(unittest.IsolatedAsyncioTestCase):
         commands = [
             ['SET', 'number', '1'], ['INCR', 'number'],
             ['RPUSH', 'list', 'a', 'b'], ['LPOP', 'list'],
-            ['ZADD', 'scores', '1', 'a', '2', 'b'], ['ZREM', 'scores', 'a'],
+            ['ZADD', 'scores', 'NX', '1', 'a', '2', 'b'],
+            ['ZADD', 'scores', 'XX', '3', 'a', '4', 'missing'], ['ZREM', 'scores', 'a'],
             ['XADD', 'stream', '*', 'field', 'value'], ['SETBIT', 'bits', '0', '1'],
-            ['BITOP', 'OR', 'copy', 'bits'], ['GEOADD', 'places', '0', '0', 'origin'],
+            ['BITOP', 'OR', 'copy', 'bits'], ['GEOADD', 'places', 'NX', '0', '0', 'origin'],
+            ['GEOADD', 'places', 'XX', '1', '1', 'origin', '2', '2', 'missing'],
         ]
         session = ClientSession()
         for tokens in commands:
@@ -70,6 +72,18 @@ class AOFReplayTests(unittest.IsolatedAsyncioTestCase):
         await restored.execute(['INCR', 'number'], ClientSession())
         self.assertEqual(restored.store.get('number'), '3')
         self.assertEqual(self.manager.file.read_bytes(), before + encode_command(['INCR', 'number']))
+
+    async def test_conditional_sorted_set_noops_are_not_logged(self):
+        executor = self.executor()
+        session = ClientSession()
+        for command in [['ZADD', 'scores', 'XX', '1', 'a'],
+                        ['GEOADD', 'places', 'XX', '0', '0', 'a']]:
+            self.assertEqual((await executor.execute(command, session)).value, 0)
+        self.assertEqual(self.manager.file.read_bytes(), b'')
+        await executor.execute(['ZADD', 'scores', 'NX', '1', 'a'], session)
+        before = self.manager.file.read_bytes()
+        await executor.execute(['ZADD', 'scores', 'NX', '2', 'a'], session)
+        self.assertEqual(self.manager.file.read_bytes(), before)
 
     async def test_binary_safe_replay(self):
         payload = bytes(range(256))

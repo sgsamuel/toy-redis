@@ -38,7 +38,7 @@ async def handle_set(context: CommandContext, args: list[str]) -> CommandResult:
         else:
             return CommandResult(RedisResponse.error("syntax error"))
         index += 1
-    if not context.store.set(key, value, px=milliseconds, condition=condition):
+    if not context.store.set(key, value, expiry_ms=milliseconds, condition=condition):
         return CommandResult(RedisResponse.bulk(None))
     mutation = ["SET", key, value]
     if deadline is not None:

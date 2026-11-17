@@ -77,7 +77,7 @@ class RDBTests(unittest.TestCase):
         self.assertEqual(self.store.keys('*'), ['key\udcff'])
 
     def test_snapshot_round_trip_all_types_and_stale_key_removal(self):
-        self.store.set('text', 'é', px=60000)
+        self.store.set('text', 'é', expiry_ms=60000)
         self.store.setbit('bits', 0, 1)
         self.store.rpush('list', 'a', 'b')
         self.store.zadd('scores', (1.0, 'a'), (2.0, 'b'))

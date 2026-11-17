@@ -84,8 +84,8 @@ class RedisStore:
                 if self._get_entry_locked(key) is not None and fnmatchcase(key, pattern)
             ]
 
-    def set(self, key: str, value: str, px: int | None = None, condition: str | None = None) -> bool:
-        return strings.set(self, key, value, px, condition)
+    def set(self, key: str, value: str, expiry_ms: int | None = None, condition: str | None = None) -> bool:
+        return strings.set(self, key, value, expiry_ms, condition)
 
     def get(self, key: str) -> str | bytes | None:
         return strings.get(self, key)
@@ -181,14 +181,18 @@ class RedisStore:
     ) -> list[tuple[str, list[RedisStreamEntry]]]:
         return await streams.xread_blocking(self, requests, block_ms)
 
-    def zadd(self, key: str, *pairs: tuple[float, str]) -> int:
-        return sorted_set.zadd(self, key, *pairs)
+    def zadd(
+        self, key: str, *pairs: tuple[float, str], condition: str | None = None
+    ) -> int:
+        return sorted_set.zadd(self, key, *pairs, condition=condition)
 
     def zrank(self, key: str, member: str) -> int | None:
         return sorted_set.zrank(self, key, member)
 
-    def zrange(self, key: str, start: int, stop: int) -> list[str]:
-        return sorted_set.zrange(self, key, start, stop)
+    def zrange(
+        self, key: str, start: int, stop: int, *, with_scores: bool = False
+    ) -> list[str] | list[tuple[str, float]]:
+        return sorted_set.zrange(self, key, start, stop, with_scores=with_scores)
 
     def zcard(self, key: str) -> int:
         return sorted_set.zcard(self, key)
@@ -199,8 +203,10 @@ class RedisStore:
     def zrem(self, key: str, *members: str) -> int:
         return sorted_set.zrem(self, key, *members)
 
-    def geoadd(self, key: str, *locations: tuple[float, float, str]) -> int:
-        return geo.geoadd(self, key, *locations)
+    def geoadd(
+        self, key: str, *locations: tuple[float, float, str], condition: str | None = None
+    ) -> int:
+        return geo.geoadd(self, key, *locations, condition=condition)
 
     def geopos(self, key: str, *members: str) -> list[tuple[float, float] | None]:
         return geo.geopos(self, key, *members)

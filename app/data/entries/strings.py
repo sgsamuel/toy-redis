@@ -9,12 +9,12 @@ if TYPE_CHECKING:
     from ..store import RedisStore
 
 
-def set(store: RedisStore, key: str, value: str, px: int | None = None, condition: str | None = None) -> bool:
+def set(store: RedisStore, key: str, value: str, expiry_ms: int | None = None, condition: str | None = None) -> bool:
     with store._lock:
         entry = store._get_entry_locked(key)
         if (condition == "NX" and entry is not None) or (condition == "XX" and entry is None):
             return False
-        expires_at = time.monotonic() + px / 1000 if px is not None else None
+        expires_at = time.monotonic() + expiry_ms / 1000 if expiry_ms is not None else None
         store._store[key] = RedisString(value=value, expires_at=expires_at)
         store._mark_changed_locked(key)
         return True

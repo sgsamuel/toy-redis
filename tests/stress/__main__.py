@@ -124,7 +124,7 @@ async def replication_burst(scale):
         store.zadd('scores', (1.0, 'member'))
         store.xadd('stream', '1-0', [('field', 'value')])
         store.setbit('bits', 0, 1)
-        store.set('expiring', 'value', px=60000)
+        store.set('expiring', 'value', expiry_ms=60000)
         async with following(primary) as replica:
             assert len(replica.store.keys('before:*')) == 100 * scale
             assert replica.store.lrange('list', 0, -1) == ['a', 'b']
