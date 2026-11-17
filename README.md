@@ -1,15 +1,19 @@
 # toy-redis
 
-An asyncio Redis-compatible server, started from the [CodeCrafters Redis challenge](https://codecrafters.io/challenges/redis) and intended for further development beyond the challenge. Supports strings, bitmaps, lists, streams, sorted sets, geospatial indexes, pub/sub, authentication, transactions, replication, and RDB loading over RESP2.
+An asyncio Redis-compatible server, started from the [CodeCrafters Redis
+challenge](https://codecrafters.io/challenges/redis) and intended for further development beyond the
+challenge. Supports strings, bitmaps, lists, streams, sorted sets, geospatial indexes, pub/sub,
+authentication, transactions, replication, and RDB loading over RESP2.
 
 This implements a subset of Redis. The command reference below describes the supported forms.
 
 ## Running
 
-Requires Python 3.14 or later and `uv` for the launcher. Install `redis-cli` separately to use the client examples.
+Requires Python 3.14 or later and `uv` for the launcher. Install `redis-cli` separately to use the
+client examples.
 
 ```sh
-./your_program.sh --port 6379
+./run.sh --port 6379
 redis-cli PING
 ```
 
@@ -30,20 +34,22 @@ Alternatively, run `python3 -m app.main` with Python 3.14 or later.
 Start a replica with:
 
 ```sh
-./your_program.sh --port 6380 --replicaof localhost 6379
+./run.sh --port 6380 --replicaof localhost 6379
 ```
 
 Load an existing RDB snapshot at startup with:
 
 ```sh
-./your_program.sh --dir /path/to/snapshots --dbfilename dump.rdb
+./run.sh --dir /path/to/snapshots --dbfilename dump.rdb
 redis-cli CONFIG GET dir dbfilename
 redis-cli KEYS '*'
 ```
 
 ## Data types and commands
 
-Command and subcommand names are case insensitive. Keys, members, channels, usernames, and passwords are case sensitive. In the syntax below, brackets indicate optional arguments and `...` indicates repetition.
+Command and subcommand names are case insensitive. Keys, members, channels, usernames, and passwords
+are case sensitive. In the syntax below, brackets indicate optional arguments, `or` separates
+alternatives, and `...` indicates repetition.
 
 ### Strings
 
@@ -51,24 +57,41 @@ Strings hold text or byte values; bitmap operations share the same storage. `STR
 
 | Command | Behavior |
 | --- | --- |
-| `SET key value [EX seconds]` | Store a value, optionally with expiry in seconds |
-| `SET key value PX milliseconds` | Store a value with expiry in milliseconds |
-| `SET key value PXAT timestamp` | Store a value with an absolute Unix expiry in milliseconds |
+| `SET key value [NX or XX] [EX seconds or PX milliseconds or EXAT timestamp or PXAT timestamp]` | Store a value, optionally with a condition and expiry |
 | `GET key` | Read a value; return null for a missing or expired key |
 | `INCR key` | Increment an integer value; initialize a missing key to `1` |
+| `DECR key` | Decrement a signed 64-bit integer, starting from zero for a missing key; preserve its expiry |
 | `STRLEN key` | Return the byte length, or `0` for a missing key |
 
-`DECR key` decrements a signed 64-bit integer, starting from zero for a missing key, and preserves its expiry.
+`SET` replaces the previous value and its expiry. Supports `NX` (only if absent) and `XX` (only if
+present), combined with one `EX`, `PX`, `EXAT`, or `PXAT` expiry option in either order. An unmet
+condition returns null without changing the key.
 
-`TTL key` / `PTTL key` return remaining seconds / milliseconds; `EXPIRETIME key` / `PEXPIRETIME key` return the Unix expiry timestamp. All return `-2` for missing keys and `-1` for persistent keys.
+### Key expiry
 
-`EXPIRE key seconds` / `PEXPIRE key milliseconds` set relative expiry; `EXPIREAT key timestamp` / `PEXPIREAT key timestamp` set absolute Unix expiry in seconds / milliseconds. They accept one optional `NX`, `XX`, `GT`, or `LT` condition and return `1` when applied, otherwise `0`. Nonpositive relative deadlines or past absolute deadlines delete the key. `PERSIST key` removes expiry and returns `1` when changed, otherwise `0`. These commands work on every data type.
+These commands work on every data type.
 
-`SET` replaces the previous value and its expiry. Supports `NX` (only if absent) and `XX` (only if present), combined with one `EX`, `PX`, `EXAT`, or `PXAT` expiry option in either order. An unmet condition returns null without changing the key.
+| Command | Behavior |
+| --- | --- |
+| `TTL key` | Return the remaining expiry in seconds |
+| `PTTL key` | Return the remaining expiry in milliseconds |
+| `EXPIRETIME key` | Return the Unix expiry timestamp in seconds |
+| `PEXPIRETIME key` | Return the Unix expiry timestamp in milliseconds |
+| `EXPIRE key seconds [NX or XX or GT or LT]` | Set relative expiry in seconds |
+| `PEXPIRE key milliseconds [NX or XX or GT or LT]` | Set relative expiry in milliseconds |
+| `EXPIREAT key timestamp [NX or XX or GT or LT]` | Set absolute Unix expiry in seconds |
+| `PEXPIREAT key timestamp [NX or XX or GT or LT]` | Set absolute Unix expiry in milliseconds |
+| `PERSIST key` | Remove expiry; return `1` when changed, otherwise `0` |
+
+`TTL`, `PTTL`, `EXPIRETIME`, and `PEXPIRETIME` return `-2` for missing keys and `-1` for persistent
+keys. Expiry-setting commands accept one optional `NX`, `XX`, `GT`, or `LT` condition and return `1`
+when applied, otherwise `0`. Nonpositive relative deadlines or past absolute deadlines delete the
+key.
 
 ### Bitmaps
 
-Bit offsets start at the most significant bit of the first byte. Missing bits read as `0`; writes extend strings with zero bytes.
+Bit offsets start at the most significant bit of the first byte. Missing bits read as `0`; writes
+extend strings with zero bytes.
 
 | Command | Behavior |
 | --- | --- |
@@ -78,7 +101,9 @@ Bit offsets start at the most significant bit of the first byte. Missing bits re
 | `BITOP AND destination key [key ...]` | Store the bitwise AND of source strings |
 | `BITOP OR destination key [key ...]` | Store the bitwise OR of source strings |
 
-For `BITCOUNT`, choose the literal `BYTE` or `BIT`; the default is `BYTE`. Negative indexes count from the end. `BITOP` pads shorter sources with zeros and returns the result's byte length. Only `AND` and `OR` are supported.
+For `BITCOUNT`, choose the literal `BYTE` or `BIT`; the default is `BYTE`. Negative indexes count
+from the end. `BITOP` pads shorter sources with zeros and returns the result's byte length. Only
+`AND` and `OR` are supported.
 
 ### Lists
 
@@ -93,7 +118,8 @@ Lists contain ordered string values.
 | `LPOP key [count]` | Remove one value or up to `count` values from the left |
 | `BLPOP key timeout` | Wait for and remove a value from one list |
 
-`BLPOP` accepts a timeout in seconds, including fractions; `0` waits indefinitely. Multiple-key `BLPOP` is not implemented.
+`BLPOP` accepts a timeout in seconds, including fractions; `0` waits indefinitely. Multiple-key
+`BLPOP` is not implemented.
 
 ### Streams
 
@@ -105,11 +131,14 @@ Streams contain entries ordered by IDs, with field/value pairs in each entry.
 | `XRANGE key start end` | Read entries between inclusive ID bounds; use `-` and `+` for unbounded ends |
 | `XREAD [BLOCK milliseconds] STREAMS key [key ...] id [id ...]` | Read entries after the corresponding IDs from one or more streams |
 
-`XADD` accepts explicit IDs, `*` for automatic IDs, and `milliseconds-*` for automatic sequence numbers. `XREAD BLOCK 0` waits indefinitely; blocking reads accept `$` to wait for entries newer than the current stream tail. Consumer groups and trimming are not implemented.
+`XADD` accepts explicit IDs, `*` for automatic IDs, and `milliseconds-*` for automatic sequence
+numbers. `XREAD BLOCK 0` waits indefinitely; blocking reads accept `$` to wait for entries newer
+than the current stream tail. Consumer groups and trimming are not implemented.
 
 ### Sorted sets
 
-Sorted sets contain unique members with floating-point scores, ordered by score and then member name.
+Sorted sets contain unique members with floating-point scores, ordered by score and then member
+name.
 
 | Command | Behavior |
 | --- | --- |
@@ -124,7 +153,8 @@ Optional Redis flags such as `ZADD NX` and `ZRANGE WITHSCORES` are not implement
 
 ### Geospatial indexes
 
-Geo indexes use sorted sets, so their members and encoded scores are also accessible through sorted-set commands.
+Geo indexes use sorted sets, so their members and encoded scores are also accessible through
+sorted-set commands.
 
 | Command | Behavior |
 | --- | --- |
@@ -143,7 +173,10 @@ GEOSEARCH key
   [WITHDIST] [WITHHASH] [WITHCOORD]
 ```
 
-Distance units are `m`, `km`, `ft`, and `mi`; `GEODIST` defaults to meters. Longitudes must be within `[-180, 180]` and latitudes within `[-85.05112878, 85.05112878]`, including the endpoints. Coordinates are decoded to geohash cell centers, and distances use Redis's Haversine formula. Searches scan the sorted set.
+Distance units are `m`, `km`, `ft`, and `mi`; `GEODIST` defaults to meters. Longitudes must be
+within `[-180, 180]` and latitudes within `[-85.05112878, 85.05112878]`, including the endpoints.
+Coordinates are decoded to geohash cell centers, and distances use Redis's Haversine formula.
+Searches scan the sorted set.
 
 ## Connection and key commands
 
@@ -169,7 +202,10 @@ Bitmaps report type `string`; geo indexes report type `zset`.
 | `AUTH password` | Authenticate as `default` |
 | `AUTH username password` | Authenticate as a named user |
 
-The default user initially has the `nopass` flag and an empty password list. Adding a password removes `nopass` and stores its SHA-256 hash. Multiple passwords can be added; `nopass` clears them. Existing authenticated connections remain authenticated when passwords change. User configuration is held in memory; command/key permission rules and other ACL rules are not implemented.
+The default user initially has the `nopass` flag and an empty password list. Adding a password
+removes `nopass` and stores its SHA-256 hash. Multiple passwords can be added; `nopass` clears them.
+Existing authenticated connections remain authenticated when passwords change. User configuration is
+held in memory; command/key permission rules and other ACL rules are not implemented.
 
 Quote password rules in a shell so `>` is passed to Redis:
 
@@ -191,7 +227,11 @@ redis-cli --user default --askpass ACL WHOAMI
 | `SUNSUBSCRIBE [channel ...]` | Remove named shard subscriptions, or all shard subscriptions |
 | `SPUBLISH channel message` | Publish to shard subscribers |
 
-While subscribed, a connection accepts only subscription/unsubscription commands, `PING`, `QUIT`, and `RESET`. `PING` returns a pub/sub `pong` array in this mode. Connections have bounded output queues; ordinary replies apply backpressure, and pub/sub or replication consumers exceeding 8 MiB of queued output are disconnected. Shard channels are local to this server; Redis Cluster routing is not implemented.
+While subscribed, a connection accepts only subscription/unsubscription commands, `PING`, `QUIT`,
+and `RESET`. `PING` returns a pub/sub `pong` array in this mode. Connections have bounded output
+queues; ordinary replies apply backpressure, and pub/sub or replication consumers exceeding 8 MiB of
+queued output are disconnected. Shard channels are local to this server; Redis Cluster routing is
+not implemented.
 
 ## Transactions
 
@@ -203,7 +243,9 @@ While subscribed, a connection accepts only subscription/unsubscription commands
 | `WATCH key [key ...]` | Watch keys for changes before `EXEC` |
 | `UNWATCH` | Clear watched keys |
 
-If a watched key changes or expires, `EXEC` returns a null array. Unknown commands, invalid subcommands, and invalid argument counts abort the transaction with `EXECABORT`. Blocking list and stream reads perform an immediate read inside `EXEC` instead of waiting.
+If a watched key changes or expires, `EXEC` returns a null array. Unknown commands, invalid
+subcommands, and invalid argument counts abort the transaction with `EXECABORT`. Blocking list and
+stream reads perform an immediate read inside `EXEC` instead of waiting.
 
 ## Replication
 
@@ -218,24 +260,35 @@ If a watched key changes or expires, `EXEC` returns a null array. Unknown comman
 | `PSYNC replication-id offset` | Start a full-resynchronization handshake |
 | `WAIT replicas timeout` | Wait for acknowledgments of this connection's writes; timeout is in milliseconds |
 
-Successful data mutations are propagated to connected replicas. Full resynchronization transfers and installs an RDB snapshot of all supported data types and expirations at the matching replication offset. Replicas reject external data writes with `READONLY`; the internal follower applies replicated mutations. Partial resynchronization and automatic reconnection are not implemented.
+Successful data mutations are propagated to connected replicas. Full resynchronization transfers and
+installs an RDB snapshot of all supported data types and expirations at the matching replication
+offset. Replicas reject external data writes with `READONLY`; the internal follower applies
+replicated mutations. Partial resynchronization and automatic reconnection are not implemented.
 
 ## RDB loading
 
-At startup, the server reads `dir/dbfilename`. A missing file starts an empty store. The loader restores database 0, including strings, plain lists, binary-score sorted sets, and stream listpacks without consumer groups. Strings support integer and LZF encodings. Expiry timestamps in seconds or milliseconds are preserved. Expired keys are skipped; future expirations remain active for `GET` and `KEYS`.
+At startup, the server reads `dir/dbfilename`. A missing file starts an empty store. The loader
+restores database 0, including strings, plain lists, binary-score sorted sets, and stream listpacks
+without consumer groups. Strings support integer and LZF encodings. Expiry timestamps in seconds or
+milliseconds are preserved. Expired keys are skipped; future expirations remain active for `GET` and
+`KEYS`.
 
-Other RDB encodings, stream consumer groups, saving snapshots to disk (`SAVE`/`BGSAVE`), checksum validation, and selecting other databases are not implemented. Replication generates snapshots in memory.
+Other RDB encodings, stream consumer groups, saving snapshots to disk (`SAVE`/`BGSAVE`), checksum
+validation, and selecting other databases are not implemented. Replication generates snapshots in
+memory.
 
 ## AOF persistence
 
 AOF settings can be supplied as startup flags and inspected with `CONFIG GET`:
 
 ```sh
-./your_program.sh --appendonly yes --appendfsync everysec
+./run.sh --appendonly yes --appendfsync everysec
 redis-cli CONFIG GET 'append*' dir
 ```
 
-`appenddirname` specifies the subdirectory beneath `dir` intended for AOF and manifest files; `appendfilename` specifies the AOF base filename. With `--appendonly yes`, startup creates the directory and these files:
+`appenddirname` specifies the subdirectory beneath `dir` intended for AOF and manifest files;
+`appendfilename` specifies the AOF base filename. With `--appendonly yes`, startup creates the
+directory and these files:
 
 ```text
 <dir>/<appenddirname>/
@@ -249,15 +302,27 @@ The incremental AOF starts empty. The manifest contains:
 file <appendfilename>.1.incr.aof seq 1 type i
 ```
 
-Existing AOF and manifest contents are preserved on restart. With `appendonly no`, no AOF directory or files are created. Successful data mutations are appended as RESP commands, using the same concrete mutation metadata as replication. Reads, errors, discarded transactions, and commands that produce no mutation are excluded. Queued writes are recorded when `EXEC` executes them; trusted writes applied on replicas are recorded locally too. Construction initializes the files; startup then replays the manifest's incremental AOF files in sequence before accepting connections. Replay does not append records or propagate mutations to replicas. `SELECT 0` is accepted; other databases, RDB base files, and AOF rewriting are not supported. Invalid commands and truncated records stop startup.
+Existing AOF and manifest contents are preserved on restart. With `appendonly no`, no AOF directory
+or files are created. Successful data mutations are appended as RESP commands, using the same
+concrete mutation metadata as replication. Reads, errors, discarded transactions, and commands that
+produce no mutation are excluded. Queued writes are recorded when `EXEC` executes them; trusted
+writes applied on replicas are recorded locally too. Construction initializes the files; startup
+then replays the manifest's incremental AOF files in sequence before accepting connections. Replay
+does not append records or propagate mutations to replicas. `SELECT 0` is accepted; other databases,
+RDB base files, and AOF rewriting are not supported. Invalid commands and truncated records stop
+startup.
 
-With `appendonly yes`, AOF is the startup data source instead of the standalone RDB file. With `appendonly no`, normal RDB loading applies. New expiring `SET` records use absolute `PXAT` timestamps, preserving their deadlines across restarts. Existing relative `EX`/`PX` records cannot recover their original write time and are interpreted relative to replay time.
+With `appendonly yes`, AOF is the startup data source instead of the standalone RDB file. With
+`appendonly no`, normal RDB loading applies. New expiring `SET` records use absolute `PXAT`
+timestamps, preserving their deadlines across restarts. Existing relative `EX`/`PX` records cannot
+recover their original write time and are interpreted relative to replay time.
 
 Transaction-boundary records and scheduled fsync operations are not implemented.
 
 ## Tests
 
-The suites use Python's standard-library `unittest`; no additional test packages are required. Run commands from the repository root with Python 3.14 or later.
+The suites use Python's standard-library `unittest`; no additional test packages are required. Run
+commands from the repository root with Python 3.14 or later.
 
 ```sh
 # All unit and integration tests (integration tests bind ephemeral loopback ports).
@@ -270,7 +335,11 @@ uv run python -m unittest discover -s tests/unit -v
 uv run python -m unittest discover -s tests/integration -v
 ```
 
-Unit tests cover RESP framing and binary payloads; supported data commands; authentication; transactions; configuration; RDB parsing, snapshots, and expiry; and AOF initialization, replay, and corrupt input. Integration tests cover pipelining, protocol error recovery, subscription cleanup, blocking-client disconnects, replication snapshots and acknowledgments, and AOF-backed server restarts.
+Unit tests cover RESP framing and binary payloads; supported data commands; authentication;
+transactions; configuration; RDB parsing, snapshots, and expiry; and AOF initialization, replay, and
+corrupt input. Integration tests cover pipelining, protocol error recovery, subscription cleanup,
+blocking-client disconnects, replication snapshots and acknowledgments, and AOF-backed server
+restarts.
 
 ### Stress tests
 
@@ -282,9 +351,16 @@ uv run python -m tests.stress --output .test-results/stress.json
 uv run python -m tests.stress --scale 2 --scenario pipeline-5000 --scenario replication-burst
 ```
 
-The default run checks 32 concurrent clients, authenticated writes, pipelines through 5,000 commands, channel/pattern fanout, 1,000 publications inside one transaction, disconnect cleanup, replicated write bursts, 10,000-command AOF replay, 10,000 deterministic randomized storage operations, and a 20,000-entry RDB load with expirations. `--scale` accepts values from 1 to 10. `--scenario` can be repeated; omit it to run every workload.
+The default run checks 32 concurrent clients, authenticated writes, pipelines through 5,000
+commands, channel/pattern fanout, 1,000 publications inside one transaction, disconnect cleanup,
+replicated write bursts, 10,000-command AOF replay, 10,000 deterministic randomized storage
+operations, and a 20,000-entry RDB load with expirations. `--scale` accepts values from 1 to 10.
+`--scenario` can be repeated; omit it to run every workload.
 
-The runner prints JSON results and exits nonzero if any scenario fails. It uses temporary data directories and ephemeral loopback ports, cleans up its connections/tasks, and does not touch your running server or data files. Timings describe a local test run, not a production capacity guarantee.
+The runner prints JSON results and exits nonzero if any scenario fails. It uses temporary data
+directories and ephemeral loopback ports, cleans up its connections/tasks, and does not touch your
+running server or data files. Timings describe a local test run, not a production capacity
+guarantee.
 
 ## Code organization
 
@@ -303,8 +379,11 @@ The runner prints JSON results and exits nonzero if any scenario fails. It uses 
 | `app/replication/` | Primary write propagation and replica following |
 | `tests/unit/`, `tests/integration/`, `tests/stress/` | Regression suites and bounded stress workloads |
 
-Data helpers ending in `_locked` require the caller to hold the store lock. Handlers return responses and mutation metadata without depending on the executor or server.
+Data helpers ending in `_locked` require the caller to hold the store lock. Handlers return
+responses and mutation metadata without depending on the executor or server.
 
 ## Attribution
 
-The geospatial score encoding was originally based on the [Redis geocoding algorithm explainer](https://github.com/codecrafters-io/redis-geocoding-algorithm). The code now describes the algorithm directly; its origin is recorded here.
+The geospatial score encoding was originally based on the [Redis geocoding algorithm
+explainer](https://github.com/codecrafters-io/redis-geocoding-algorithm). The code now describes the
+algorithm directly; its origin is recorded here.
