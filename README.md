@@ -58,7 +58,13 @@ Strings hold text or byte values; bitmap operations share the same storage. `STR
 | `INCR key` | Increment an integer value; initialize a missing key to `1` |
 | `STRLEN key` | Return the byte length, or `0` for a missing key |
 
-`SET` replaces the previous value and its expiry. Only one expiry option is accepted; other Redis `SET` options are not implemented.
+`DECR key` decrements a signed 64-bit integer, starting from zero for a missing key, and preserves its expiry.
+
+`TTL key` / `PTTL key` return remaining seconds / milliseconds; `EXPIRETIME key` / `PEXPIRETIME key` return the Unix expiry timestamp. All return `-2` for missing keys and `-1` for persistent keys.
+
+`EXPIRE key seconds` / `PEXPIRE key milliseconds` set relative expiry; `EXPIREAT key timestamp` / `PEXPIREAT key timestamp` set absolute Unix expiry in seconds / milliseconds. They accept one optional `NX`, `XX`, `GT`, or `LT` condition and return `1` when applied, otherwise `0`. Nonpositive relative deadlines or past absolute deadlines delete the key. `PERSIST key` removes expiry and returns `1` when changed, otherwise `0`. These commands work on every data type.
+
+`SET` replaces the previous value and its expiry. Supports `NX` (only if absent) and `XX` (only if present), combined with one `EX`, `PX`, `EXAT`, or `PXAT` expiry option in either order. An unmet condition returns null without changing the key.
 
 ### Bitmaps
 
@@ -249,6 +255,37 @@ With `appendonly yes`, AOF is the startup data source instead of the standalone 
 
 Transaction-boundary records and scheduled fsync operations are not implemented.
 
+## Tests
+
+The suites use Python's standard-library `unittest`; no additional test packages are required. Run commands from the repository root with Python 3.14 or later.
+
+```sh
+# All unit and integration tests (integration tests bind ephemeral loopback ports).
+uv run python -m unittest discover -s tests -v
+
+# Unit tests only; no listening sockets are required.
+uv run python -m unittest discover -s tests/unit -v
+
+# Socket-based client/server, pub/sub, restart, and replication tests.
+uv run python -m unittest discover -s tests/integration -v
+```
+
+Unit tests cover RESP framing and binary payloads; supported data commands; authentication; transactions; configuration; RDB parsing, snapshots, and expiry; and AOF initialization, replay, and corrupt input. Integration tests cover pipelining, protocol error recovery, subscription cleanup, blocking-client disconnects, replication snapshots and acknowledgments, and AOF-backed server restarts.
+
+### Stress tests
+
+```sh
+# Run all workloads; write a machine-readable report.
+uv run python -m tests.stress --output .test-results/stress.json
+
+# Increase load or rerun selected workloads.
+uv run python -m tests.stress --scale 2 --scenario pipeline-5000 --scenario replication-burst
+```
+
+The default run checks 32 concurrent clients, authenticated writes, pipelines through 5,000 commands, channel/pattern fanout, 1,000 publications inside one transaction, disconnect cleanup, replicated write bursts, 10,000-command AOF replay, 10,000 deterministic randomized storage operations, and a 20,000-entry RDB load with expirations. `--scale` accepts values from 1 to 10. `--scenario` can be repeated; omit it to run every workload.
+
+The runner prints JSON results and exits nonzero if any scenario fails. It uses temporary data directories and ephemeral loopback ports, cleans up its connections/tasks, and does not touch your running server or data files. Timings describe a local test run, not a production capacity guarantee.
+
 ## Code organization
 
 | Path | Responsibility |
@@ -264,5 +301,10 @@ Transaction-boundary records and scheduled fsync operations are not implemented.
 | `app/persistence/` | RDB parsing, in-memory snapshots, and AOF initialization, write logging, and replay |
 | `app/network/auth.py`, `app/network/pubsub.py` | User state and subscription registries |
 | `app/replication/` | Primary write propagation and replica following |
+| `tests/unit/`, `tests/integration/`, `tests/stress/` | Regression suites and bounded stress workloads |
 
 Data helpers ending in `_locked` require the caller to hold the store lock. Handlers return responses and mutation metadata without depending on the executor or server.
+
+## Attribution
+
+The geospatial score encoding was originally based on the [Redis geocoding algorithm explainer](https://github.com/codecrafters-io/redis-geocoding-algorithm). The code now describes the algorithm directly; its origin is recorded here.

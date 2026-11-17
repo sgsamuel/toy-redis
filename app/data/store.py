@@ -3,6 +3,7 @@ from collections import deque
 from threading import Lock
 from fnmatch import fnmatchcase
 from pathlib import Path
+import time
 
 from app.persistence.rdb import dump_rdb, load_rdb, parse_rdb
 from .common import RedisString, RedisList, RedisStream, RedisStreamEntry, RedisSortedSet
@@ -83,14 +84,53 @@ class RedisStore:
                 if self._get_entry_locked(key) is not None and fnmatchcase(key, pattern)
             ]
 
-    def set(self, key: str, value: str, px: int | None = None) -> None:
-        strings.set(self, key, value, px)
+    def set(self, key: str, value: str, px: int | None = None, condition: str | None = None) -> bool:
+        return strings.set(self, key, value, px, condition)
 
     def get(self, key: str) -> str | bytes | None:
         return strings.get(self, key)
 
-    def incr(self, key: str) -> int:
-        return strings.incr(self, key)
+    def incr(self, key: str, delta: int = 1) -> int:
+        return strings.incr(self, key, delta)
+
+    def ttl(self, key: str, *, milliseconds: bool = False, absolute: bool = False) -> int:
+        with self._lock:
+            entry = self._get_entry_locked(key)
+            if entry is None:
+                return -2
+            if entry.expires_at is None:
+                return -1
+            remaining = entry.expires_at - time.monotonic()
+            value = time.time() + remaining if absolute else max(0, remaining)
+            return int(value * 1000) if milliseconds else int(value + 0.5) if not absolute else int(value)
+
+    def expire(self, key: str, milliseconds: int, condition: str | None = None) -> bool:
+        with self._lock:
+            entry = self._get_entry_locked(key)
+            if entry is None:
+                return False
+            deadline = time.monotonic() + milliseconds / 1000
+            current = entry.expires_at
+            if ((condition == "NX" and current is not None)
+                    or (condition == "XX" and current is None)
+                    or (condition == "GT" and (current is None or deadline <= current))
+                    or (condition == "LT" and current is not None and deadline >= current)):
+                return False
+            if milliseconds <= 0:
+                del self._store[key]
+            else:
+                entry.expires_at = deadline
+            self._mark_changed_locked(key)
+            return True
+
+    def persist(self, key: str) -> bool:
+        with self._lock:
+            entry = self._get_entry_locked(key)
+            if entry is None or entry.expires_at is None:
+                return False
+            entry.expires_at = None
+            self._mark_changed_locked(key)
+            return True
 
     def setbit(self, key: str, offset: int, value: int) -> int:
         return bitmap.setbit(self, key, offset, value)

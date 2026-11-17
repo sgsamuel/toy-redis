@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from ..store import RedisStore
 
 
-# Encoding algorithm: https://github.com/codecrafters-io/redis-geocoding-algorithm
+# Encode coordinates as interleaved 26-bit latitude and longitude grid cells.
 MIN_LONGITUDE = -180.0
 MAX_LONGITUDE = 180.0
 MIN_LATITUDE = -85.05112878
