@@ -1,23 +1,35 @@
 # toy-redis
 
-An asyncio Redis-compatible server, started from the [CodeCrafters Redis
-challenge](https://codecrafters.io/challenges/redis) and intended for further development beyond the
-challenge. Supports strings, bitmaps, lists, streams, sorted sets, geospatial indexes, pub/sub,
-authentication, transactions, replication, and RDB loading over RESP2.
+An asyncio Redis-compatible server built from the
+[CodeCrafters Redis challenge](https://codecrafters.io/challenges/redis). Implements a subset of
+Redis over RESP2, including strings, bitmaps, lists, streams, sorted sets, geospatial indexes,
+pub/sub, authentication, transactions, replication, and RDB/AOF persistence.
 
-This implements a subset of Redis. The command reference below describes the supported forms.
+[Quick start](#quick-start) · [Configuration](#configuration) ·
+[Command reference](#command-reference) · [Persistence](#persistence) ·
+[Tests](#tests) · [Code organization](#code-organization)
 
-## Running
+## Quick start
 
-Requires Python 3.14 or later and `uv` for the launcher. Install `redis-cli` separately to use the
-client examples.
+Requires Python 3.14 or later and `uv`. Install `redis-cli` separately to try the examples.
+
+Start the server:
 
 ```sh
 ./run.sh --port 6379
-redis-cli PING
 ```
 
-Alternatively, run `python3 -m app.main` with Python 3.14 or later.
+In another terminal:
+
+```sh
+redis-cli PING
+redis-cli SET greeting hello
+redis-cli GET greeting
+```
+
+You can also start the server with `python3 -m app.main` using Python 3.14 or later.
+
+## Configuration
 
 | Option | Default | Purpose |
 | --- | --- | --- |
@@ -26,26 +38,27 @@ Alternatively, run `python3 -m app.main` with Python 3.14 or later.
 | `--replicaof HOST PORT` | Unset | Follow a primary server |
 | `--dir` | Working directory at startup | Base directory for data files |
 | `--dbfilename` | `dump.rdb` | RDB filename |
-| `--appendonly` | `no` | AOF enablement setting: `yes` or `no` |
+| `--appendonly` | `no` | Enable AOF logging and replay: `yes` or `no` |
 | `--appenddirname` | `appendonlydir` | AOF subdirectory under `dir` |
 | `--appendfilename` | `appendonly.aof` | AOF base filename |
-| `--appendfsync` | `everysec` | AOF flush policy: `always`, `everysec`, or `no` |
+| `--appendfsync` | `everysec` | Accepted policy: `always`, `everysec`, or `no`; configuration only |
 
-Start a replica with:
+The `--appendfsync` setting is exposed through configuration; fsync scheduling is not implemented.
+Inspect data-file settings with `redis-cli CONFIG GET '*'`.
+
+Start a replica of the server on port 6379:
 
 ```sh
 ./run.sh --port 6380 --replicaof localhost 6379
 ```
 
-Load an existing RDB snapshot at startup with:
+Load a snapshot at startup:
 
 ```sh
 ./run.sh --dir /path/to/snapshots --dbfilename dump.rdb
-redis-cli CONFIG GET dir dbfilename
-redis-cli KEYS '*'
 ```
 
-## Data types and commands
+## Command reference
 
 Command and subcommand names are case insensitive. Keys, members, channels, usernames, and passwords
 are case sensitive. In the syntax below, brackets indicate optional arguments, `|` separates
@@ -57,15 +70,22 @@ Strings hold text or byte values; bitmap operations share the same storage. `STR
 
 | Command | Behavior |
 | --- | --- |
-| `SET key value [NX \| XX] [EX seconds \| PX milliseconds \| EXAT timestamp \| PXAT timestamp]` | Store a value, optionally with a condition and expiry |
+| `SET key value [condition] [expiry]` | Store a value, optionally with a condition and expiry |
 | `GET key` | Read a value; return null for a missing or expired key |
 | `INCR key` | Increment an integer value; initialize a missing key to `1` |
 | `DECR key` | Decrement a signed 64-bit integer, starting from zero for a missing key; preserve its expiry |
 | `STRLEN key` | Return the byte length, or `0` for a missing key |
 
-`SET` replaces the previous value and its expiry. Supports `NX` (only if absent) and `XX` (only if
-present), combined with one `EX`, `PX`, `EXAT`, or `PXAT` expiry option in either order. An unmet
-condition returns null without changing the key.
+`SET` replaces the previous value and expiry. Its optional arguments are:
+
+```text
+condition: NX | XX
+expiry:    EX seconds | PX milliseconds | EXAT timestamp | PXAT timestamp
+```
+
+`NX` writes only if the key is absent; `XX` writes only if it exists. An unmet condition returns
+null without changing the key. Use at most one condition and one expiry option, in either order.
+`EXAT` and `PXAT` use absolute Unix timestamps. Both `INCR` and `DECR` preserve existing expiry.
 
 ### Key expiry
 
@@ -97,7 +117,7 @@ extend strings with zero bytes.
 | --- | --- |
 | `SETBIT key offset value` | Set a bit to `0` or `1`; return its previous value |
 | `GETBIT key offset` | Read a bit |
-| `BITCOUNT key [start end [BYTE or BIT]]` | Count set bits in the whole string or an inclusive range |
+| `BITCOUNT key [start end [BYTE \| BIT]]` | Count set bits in the whole string or an inclusive range |
 | `BITOP AND destination key [key ...]` | Store the bitwise AND of source strings |
 | `BITOP OR destination key [key ...]` | Store the bitwise OR of source strings |
 
@@ -142,16 +162,17 @@ name.
 
 | Command | Behavior |
 | --- | --- |
-| `ZADD key [NX \| XX] score member [score member ...]` | Add \| update members; return the number of new members |
+| `ZADD key [NX \| XX] score member [score member ...]` | Add or update members; return the number of new members |
 | `ZRANK key member` | Return a member's zero-based rank, or null |
-| `ZRANGE key start stop [WITHSCORES]` | Read an inclusive range by rank; optionally return alternating members and scores; negative indexes count from the end |
+| `ZRANGE key start stop [WITHSCORES]` | Read an inclusive range by rank, optionally with scores |
 | `ZCARD key` | Return the number of members |
 | `ZSCORE key member` | Return a member's score, or null |
 | `ZREM key member [member ...]` | Remove members; delete the key when the set becomes empty |
 
 `ZADD NX` adds only new members; `ZADD XX` updates only existing members. The flags are mutually
 exclusive and case insensitive. The return value counts new members, so `XX` returns `0` even when
-scores change.
+scores change. Negative `ZRANGE` indexes count from the end. With `WITHSCORES`, the reply alternates
+between members and score strings.
 
 ### Geospatial indexes
 
@@ -160,7 +181,7 @@ sorted-set commands.
 
 | Command | Behavior |
 | --- | --- |
-| `GEOADD key [NX \| XX] longitude latitude member [longitude latitude member ...]` | Add \| update locations; return the number of new members |
+| `GEOADD key [NX \| XX] longitude latitude member [longitude latitude member ...]` | Add or update locations; return the number of new members |
 | `GEOPOS key member [member ...]` | Return longitude/latitude pairs, with null entries for missing members |
 | `GEODIST key member1 member2 [unit]` | Return the distance, or null if either member is missing |
 | `GEOSEARCH key ...` | Find members inside a circle or box |
@@ -182,7 +203,7 @@ within `[-180, 180]` and latitudes within `[-85.05112878, 85.05112878]`, includi
 Coordinates are decoded to geohash cell centers, and distances use Redis's Haversine formula.
 Searches scan the sorted set.
 
-## Connection and key commands
+### Connection and key commands
 
 | Command | Behavior |
 | --- | --- |
@@ -196,7 +217,7 @@ Searches scan the sorted set.
 
 Bitmaps report type `string`; geo indexes report type `zset`.
 
-## Authentication
+### Authentication
 
 | Command | Behavior |
 | --- | --- |
@@ -218,7 +239,7 @@ redis-cli ACL SETUSER default '>secret'
 redis-cli --user default --askpass ACL WHOAMI
 ```
 
-## Pub/sub
+### Pub/sub
 
 | Command | Behavior |
 | --- | --- |
@@ -237,7 +258,7 @@ queues; ordinary replies apply backpressure, and pub/sub or replication consumer
 queued output are disconnected. Shard channels are local to this server; Redis Cluster routing is
 not implemented.
 
-## Transactions
+### Transactions
 
 | Command | Behavior |
 | --- | --- |
@@ -251,7 +272,7 @@ If a watched key changes or expires, `EXEC` returns a null array. Unknown comman
 subcommands, and invalid argument counts abort the transaction with `EXECABORT`. Blocking list and
 stream reads perform an immediate read inside `EXEC` instead of waiting.
 
-## Replication
+### Replication
 
 | Command | Behavior |
 | --- | --- |
@@ -269,30 +290,29 @@ installs an RDB snapshot of all supported data types and expirations at the matc
 offset. Replicas reject external data writes with `READONLY`; the internal follower applies
 replicated mutations. Partial resynchronization and automatic reconnection are not implemented.
 
-## RDB loading
+## Persistence
 
-At startup, the server reads `dir/dbfilename`. A missing file starts an empty store. The loader
-restores database 0, including strings, plain lists, binary-score sorted sets, and stream listpacks
-without consumer groups. Strings support integer and LZF encodings. Expiry timestamps in seconds or
-milliseconds are preserved. Expired keys are skipped; future expirations remain active for `GET` and
-`KEYS`.
+By default, startup loads `dir/dbfilename`. With `--appendonly yes`, it replays the AOF instead.
 
-Other RDB encodings, stream consumer groups, saving snapshots to disk (`SAVE`/`BGSAVE`), checksum
-validation, and selecting other databases are not implemented. Replication generates snapshots in
-memory.
+### RDB snapshots
 
-## AOF persistence
+A missing snapshot starts an empty store. The loader restores database 0, including strings, plain
+lists, binary-score sorted sets, and stream listpacks without consumer groups. Strings support
+integer and LZF encodings. Expiry timestamps are preserved; expired keys are skipped.
 
-AOF settings can be supplied as startup flags and inspected with `CONFIG GET`:
+Other RDB encodings, stream consumer groups, checksum validation, and selecting other databases are
+not implemented. Replication generates snapshots in memory; saving snapshots to disk with `SAVE` or
+`BGSAVE` is not supported.
+
+### Append-only files
+
+Enable AOF logging and startup replay:
 
 ```sh
-./run.sh --appendonly yes --appendfsync everysec
-redis-cli CONFIG GET 'append*' dir
+./run.sh --appendonly yes
 ```
 
-`appenddirname` specifies the subdirectory beneath `dir` intended for AOF and manifest files;
-`appendfilename` specifies the AOF base filename. With `--appendonly yes`, startup creates the
-directory and these files:
+New AOF directories contain an incremental log and a manifest:
 
 ```text
 <dir>/<appenddirname>/
@@ -300,94 +320,89 @@ directory and these files:
 └── <appendfilename>.manifest
 ```
 
-The incremental AOF starts empty. The manifest contains:
+Existing files are preserved on restart. Startup replays the manifest's incremental files in
+sequence before accepting connections. Invalid commands or truncated records stop startup. Replay
+does not append duplicate records or propagate writes to replicas. With `appendonly no`, no AOF
+files or directories are created.
 
-```text
-file <appendfilename>.1.incr.aof seq 1 type i
-```
+Successful mutations are logged as RESP commands. Reads, errors, discarded transactions, and
+commands that produce no mutation are excluded. Queued writes are logged when `EXEC` executes them;
+writes received by replicas are logged locally too.
 
-Existing AOF and manifest contents are preserved on restart. With `appendonly no`, no AOF directory
-or files are created. Successful data mutations are appended as RESP commands, using the same
-concrete mutation metadata as replication. Reads, errors, discarded transactions, and commands that
-produce no mutation are excluded. Queued writes are recorded when `EXEC` executes them; trusted
-writes applied on replicas are recorded locally too. Construction initializes the files; startup
-then replays the manifest's incremental AOF files in sequence before accepting connections. Replay
-does not append records or propagate mutations to replicas. `SELECT 0` is accepted; other databases,
-RDB base files, and AOF rewriting are not supported. Invalid commands and truncated records stop
-startup.
+New expiring `SET` records use absolute `PXAT` timestamps so deadlines survive restarts. Existing
+relative `EX`/`PX` records are interpreted relative to replay time because their original write time
+is unavailable.
 
-With `appendonly yes`, AOF is the startup data source instead of the standalone RDB file. With
-`appendonly no`, normal RDB loading applies. New expiring `SET` records use absolute `PXAT`
-timestamps, preserving their deadlines across restarts. Existing relative `EX`/`PX` records cannot
-recover their original write time and are interpreted relative to replay time.
-
-Transaction-boundary records and scheduled fsync operations are not implemented.
+AOF replay accepts `SELECT 0`. Other databases, RDB base files, AOF rewriting, transaction-boundary
+logging, and fsync scheduling are not implemented.
 
 ## Tests
 
-The suites use Python's standard-library `unittest`; no additional test packages are required. Run
-commands from the repository root with Python 3.14 or later.
+Run from the repository root. The suites use Python's standard-library `unittest` with no additional
+test packages. Integration tests bind ephemeral loopback ports.
 
 ```sh
-# All unit and integration tests (integration tests bind ephemeral loopback ports).
+# All unit and integration tests.
 uv run python -m unittest discover -s tests -v
 
-# Unit tests only; no listening sockets are required.
+# Run one suite.
 uv run python -m unittest discover -s tests/unit -v
-
-# Socket-based client/server, pub/sub, restart, and replication tests.
 uv run python -m unittest discover -s tests/integration -v
+
+# Run a target or an individual module.
+uv run python -m unittest discover -s tests/unit/commands/data -v
+uv run python -m unittest tests.unit.commands.data.test_sorted_sets -v
+uv run python -m unittest tests.integration.replication.test_sync -v
 ```
 
-Unit tests cover RESP framing and binary payloads; supported data commands; authentication;
-transactions; configuration; RDB parsing, snapshots, and expiry; and AOF initialization, replay, and
-corrupt input. Integration tests cover pipelining, protocol error recovery, subscription cleanup,
-blocking-client disconnects, replication snapshots and acknowledgments, and AOF-backed server
-restarts.
+Tests are grouped by target:
+
+| Location | Coverage |
+| --- | --- |
+| `tests/unit/commands/` | Authentication, configuration, transactions, and command errors |
+| `tests/unit/commands/data/` | Strings, bitmaps, lists, streams, sorted sets, geo, and expiry |
+| `tests/unit/network/`, `tests/unit/protocol/` | Pub/sub state, output queues, and RESP framing |
+| `tests/unit/persistence/`, `tests/unit/replication/`, `tests/unit/startup/` | RDB, AOF, replica command handling, and startup |
+| `tests/integration/` | Socket-based command, network, persistence, and replication tests |
+| `tests/stress/` | Data, network, persistence, and replication workloads |
+| `tests/support.py` | Shared command fixtures, clients, and server helpers |
 
 ### Stress tests
 
 ```sh
-# Run all workloads; write a machine-readable report.
+# Run all workloads and write a JSON report.
 uv run python -m tests.stress --output .test-results/stress.json
 
-# Increase load or rerun selected workloads.
+# Increase load or select workloads.
 uv run python -m tests.stress --scale 2 --scenario pipeline-5000 --scenario replication-burst
 ```
 
-The default run checks 32 concurrent clients, authenticated writes, pipelines through 5,000
-commands, channel/pattern fanout, 1,000 publications inside one transaction, disconnect cleanup,
-replicated write bursts, 10,000-command AOF replay, 10,000 deterministic randomized storage
-operations, and a 20,000-entry RDB load with expirations. `--scale` accepts values from 1 to 10.
-`--scenario` can be repeated; omit it to run every workload.
+Workloads cover concurrent and authenticated clients, pipelining, pub/sub fanout, disconnect
+cleanup, replication bursts, AOF replay, randomized storage operations, and RDB loading. `--scale`
+accepts values from 1 to 10; repeat `--scenario` to select multiple workloads, or omit it to run all
+of them. The runner prints JSON results and exits nonzero if any scenario fails.
 
-The runner prints JSON results and exits nonzero if any scenario fails. It uses temporary data
-directories and ephemeral loopback ports, cleans up its connections/tasks, and does not touch your
-running server or data files. Timings describe a local test run, not a production capacity
-guarantee.
+Stress tests use temporary data directories and ephemeral ports, clean up their connections and
+tasks, and leave running servers and existing data files untouched. Timings describe local test runs
+rather than production capacity.
 
 ## Code organization
 
 | Path | Responsibility |
 | --- | --- |
-| `app/main.py`, `app/config.py` | Startup and configuration |
-| `app/network/server.py`, `app/protocol/` | Connections, output queues, and RESP encoding/decoding |
-| `app/commands/registry.py`, `app/commands/executor.py` | Command/subcommand definitions, transaction execution, and mutation propagation |
-| `app/commands/handlers/data/` | String, bitmap, list, stream, sorted-set, geo, and key handlers |
-| `app/commands/handlers/` | Authentication, configuration, connections, pub/sub, replication, and transactions |
-| `app/commands/common.py` | Client sessions, command context, and result types |
-| `app/data/common.py` | Storage dataclasses and shared lookup helpers |
-| `app/data/store.py`, `app/data/entries/` | Key storage, expiry, versions, and data operations |
-| `app/persistence/` | RDB parsing, in-memory snapshots, and AOF initialization, write logging, and replay |
-| `app/network/auth.py`, `app/network/pubsub.py` | User state and subscription registries |
+| `app/main.py`, `app/network/config.py` | Startup, command-line options, and configuration |
+| `app/network/` | Connections, output queues, authentication state, and subscription registries |
+| `app/protocol/` | RESP parsing and response encoding |
+| `app/commands/` | Command definitions, handlers, transactions, and mutation propagation |
+| `app/data/` | Key storage, data-type operations, expiry, and key versions |
+| `app/persistence/` | RDB parsing and snapshots; AOF logging and replay |
 | `app/replication/` | Primary write propagation and replica following |
-| `tests/unit/`, `tests/integration/`, `tests/stress/` | Regression suites and bounded stress workloads |
+| `tests/` | Unit, integration, and stress suites |
 
-Data helpers ending in `_locked` require the caller to hold the store lock. Handlers return
-responses and mutation metadata without depending on the executor or server.
+Data helpers ending in `_locked` require the caller to hold the store lock. Command handlers return
+responses and mutation metadata for the executor to process.
 
 ## Attribution
 
-The geospatial score encoding was originally based on the [Redis geocoding algorithm
-explainer](https://github.com/codecrafters-io/redis-geocoding-algorithm). The code now describes the
-algorithm directly; its origin is recorded here.
+Geospatial score encoding was originally based on the
+[Redis geocoding algorithm explainer](https://github.com/codecrafters-io/redis-geocoding-algorithm).

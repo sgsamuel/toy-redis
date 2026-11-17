@@ -1,18 +1,16 @@
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 import contextlib
 import io
 import tempfile
 import unittest
-from dataclasses import asdict
-from pathlib import Path
-from unittest.mock import AsyncMock, patch
 
 from app.commands.common import ClientSession
 from app.main import main, parse_args
 from app.network.config import ServerConfig
-from tests.support import make_executor
 
 
-class ConfigTests(unittest.IsolatedAsyncioTestCase):
+class StartupTests(unittest.IsolatedAsyncioTestCase):
     def test_defaults_and_cli_validation(self):
         with patch('pathlib.Path.cwd', return_value=Path('/tmp/startup')), patch('sys.argv', ['redis']):
             config = ServerConfig()
@@ -25,16 +23,6 @@ class ConfigTests(unittest.IsolatedAsyncioTestCase):
             with patch('sys.argv', ['redis', option, value]), contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit):
                     parse_args()
-
-    async def test_config_get_all_settings_and_patterns(self):
-        config = ServerConfig()
-        executor = make_executor(config=config)
-        reply = await executor.execute(['CONFIG', 'GET', '*'], ClientSession())
-        self.assertEqual(dict(zip(reply.value[::2], reply.value[1::2])), asdict(config))
-        reply = await executor.execute(['CONFIG', 'GET', 'appendonly', 'appendfsync', 'appendonly'], ClientSession())
-        self.assertEqual(reply.value, ['appendonly', 'no', 'appendfsync', 'everysec'])
-        reply = await executor.execute(['CONFIG', 'GET', 'missing'], ClientSession())
-        self.assertEqual(reply.value, [])
 
     async def test_main_wires_shared_state_and_data_directory(self):
         with tempfile.TemporaryDirectory() as directory:

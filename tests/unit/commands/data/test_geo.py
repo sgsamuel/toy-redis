@@ -1,19 +1,11 @@
 import math
-import unittest
 
-from app.commands.common import ClientSession
 from app.data.entries.geo import decode_coordinates, encode_coordinates, haversine_distance
-from tests.support import make_executor
+
+from tests.support import CommandTestCase
 
 
-class GeoTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        self.executor = make_executor()
-        self.session = ClientSession()
-
-    async def command(self, *tokens):
-        return await self.executor.execute(list(tokens), self.session)
-
+class GeoCommandTests(CommandTestCase):
     def test_reference_scores_and_coordinate_precision(self):
         for latitude, longitude, score in [
             (13.7220, 100.5252, 3962257306574459), (39.9075, 116.3972, 4069885364908765),

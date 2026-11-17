@@ -1,8 +1,8 @@
+from pathlib import Path
+from unittest.mock import patch
 import tempfile
 import time
 import unittest
-from pathlib import Path
-from unittest.mock import patch
 
 from app.data.store import RedisStore
 from app.persistence.rdb import RDBReader, decompress_lzf

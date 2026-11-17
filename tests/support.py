@@ -1,7 +1,9 @@
-import asyncio
 from contextlib import asynccontextmanager, suppress
 from functools import partial
+import asyncio
+import unittest
 
+from app.commands.common import ClientSession
 from app.commands.executor import CommandExecutor
 from app.data.store import RedisStore
 from app.network.auth import ACLState
@@ -25,6 +27,18 @@ def make_executor(*, config=None, replication=None, store=None, acl=None, pubsub
         pubsub=pubsub if pubsub is not None else PubSubState(),
         aof_manager=AOFManager(config),
     )
+
+
+class CommandTestCase(unittest.IsolatedAsyncioTestCase):
+    """Fresh command executor, store, and connection session for each test."""
+
+    def setUp(self):
+        self.executor = make_executor()
+        self.session = ClientSession()
+        self.store = self.executor.store
+
+    async def command(self, *tokens):
+        return await self.executor.execute(list(tokens), self.session)
 
 
 async def wait_until(predicate, timeout=3):
@@ -110,8 +124,6 @@ async def running_server(executor=None):
 
 @asynccontextmanager
 async def following(primary, executor=None):
-    from app.commands.common import ClientSession
-
     executor = executor if executor is not None else make_executor()
     executor.replication.replica_of = ('127.0.0.1', primary.port)
     apply = partial(executor.apply_replication, session=ClientSession())
